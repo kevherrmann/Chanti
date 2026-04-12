@@ -1,0 +1,26 @@
+# API Keys und Secrets
+config.py
+
+# Persönliche Daten
+memory.md
+
+# Binaries und Archive
+ngrok-v3-stable-linux-amd64.tgz
+blender_mcp_addon.zip
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Swap Dateien
+*.swp
+*.swo
+
+# Logs
+/tmp/
+
+# Voices (persönliche Aufnahmen)
+voices/
+NICHT PUSHEN*
+*.t...ate-swp
