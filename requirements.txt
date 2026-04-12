@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+websockets
+python-multipart
+requests
+faster-whisper
+sounddevice
+soundfile
+resampy
+duckduckgo-search
+openwakeword
+scipy
