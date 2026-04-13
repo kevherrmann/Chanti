@@ -14,7 +14,8 @@ NGROK_PID=$!
 # Warten bis ngrok bereit ist
 echo "⏳ Warte auf ngrok..."
 for i in {1..10}; do
-    NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tunnels'][0]['public_url'])" 2>/dev/null)
+    NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | \
+        python3 -c "import sys,json; d=json.load(sys.stdin); print(d['tunnels'][0]['public_url'])" 2>/dev/null)
     if [ -n "$NGROK_URL" ]; then
         echo "✅ ngrok URL: $NGROK_URL"
         break
@@ -40,11 +41,11 @@ until curl -s -X POST http://127.0.0.1:5500 -d "test" --output /dev/null 2>/dev/
 done
 echo "✅ XTTS bereit"
 
-# Chanti Web-Server starten
+# Chanti starten
 echo "🌐 Starte Chanti Web-UI auf http://localhost:8000"
 cd ~/chanti
-conda run -p /run/media/z0mb1/58BCF437BCF4116C/chanti-env \
-    uvicorn server:app --host 0.0.0.0 --port 8000
+PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/uvicorn \
+    server:app --host 0.0.0.0 --port 8000
 
 # Cleanup beim Beenden
 trap "kill $XTTS_PID $N8N_PID $NGROK_PID 2>/dev/null" EXIT

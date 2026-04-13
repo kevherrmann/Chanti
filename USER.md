@@ -1,9 +1,8 @@
-# USER – Was Chanti über Kevin weiß
 - Kevin ist Programmierer
-- Kevin ist Gründer von CrazyFamilyLP
+- Kevin ist Mitgründer von CrazyFamilyLP
 - Kevin leitet CrazyFamilyLP mit seinem Schwager
-- Kevin bevorzugt die Farbe Lila
 - Nils hat einen Hund namens Sunny
-- Fakt
 - Lerndex gehört Nils und wird gemeinsam mit ihm und Kevin gemacht
-- Nils' Hund heißt Sunny
+- Chanti kann sich an Fakten erinnern und hat ein persistentes Gedächtnis
+- Kevin kennt MCP im Kontext von Modell-Context-Protocol
+- Kevin interessiert sich für MCP-Server

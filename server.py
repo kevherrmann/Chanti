@@ -2,9 +2,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from llm import chat as llm_chat
 from tts import speak
-from memory import load_system_prompt, log_conversation, parse_and_execute_commands
+from memory import (load_system_prompt, load_recent_context, log_conversation,
+                    parse_and_execute_commands, cleanup_old_logs)
+from skills_loader import load_skills, reload_if_changed, get_tools, get_executors
 from text_utils import clean_for_tts
-from actions import detect_and_execute
 import asyncio
 import base64
 import os
@@ -27,6 +28,9 @@ active_connections = []
 
 soul = load_system_prompt()
 print(f"[Chanti] System-Prompt geladen ({len(soul)} Zeichen)")
+
+load_skills()
+cleanup_old_logs(keep_days=30)
 
 
 async def broadcast_notify(message: str):
@@ -60,22 +64,23 @@ HTML = """
         .chanti .name { font-size: 0.7rem; color: #7c3aed; margin-bottom: 4px; font-weight: bold; letter-spacing: 1px; }
         .thinking { align-self: flex-start; color: #6b7280; font-style: italic; font-size: 0.85rem; padding: 8px 16px; }
         #inputarea { width: 100%; max-width: 800px; padding: 16px; display: flex; gap: 10px; align-items: center; }
-        #input { flex: 1; background: #1a1a2e; border: 1px solid #2a2a4a; color: #e0e0ff; padding: 12px 16px; border-radius: 12px; font-size: 0.95rem; outline: none; transition: border 0.2s; }
+        #input { flex: 1; background: #1a1a2e; border: 1px solid #2a2a4a; color: #e0e0ff; padding: 12px 16px; border-radius: 12px; font-size: 0.95rem; outline: none; }
         #input:focus { border-color: #7c3aed; }
-        #send { background: #7c3aed; color: white; border: none; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-size: 0.95rem; transition: background 0.2s; }
+        #send { background: #7c3aed; color: white; border: none; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-size: 0.95rem; }
         #send:hover { background: #6d28d9; }
         #send:disabled { background: #374151; cursor: not-allowed; }
-        #micbtn { background: #1e1b4b; border: 2px solid #7c3aed; color: #a78bfa; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; font-size: 1.2rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+        #micbtn { background: #1e1b4b; border: 2px solid #7c3aed; color: #a78bfa; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
         #micbtn.recording { background: #7c3aed; color: white; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(124,58,237,0.7); } 70% { box-shadow: 0 0 0 10px rgba(124,58,237,0); } 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); } }
         #status { font-size: 0.75rem; color: #6b7280; padding: 4px 16px 8px; }
+        .chanti ul, .chanti ol { padding-left: 20px; margin: 4px 0; }
+        .chanti p { margin: 4px 0; }
+        .chanti code { background: #2d2b55; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-    <header>
-        <h1>✦ CHANTI ✦</h1>
-        <p>Deine persönliche KI-Assistentin</p>
-    </header>
+    <header><h1>✦ CHANTI ✦</h1><p>Deine persönliche KI-Assistentin</p></header>
     <div id="chat"></div>
     <div id="status">Verbinde...</div>
     <div id="inputarea">
@@ -84,10 +89,8 @@ HTML = """
         <button id="send" disabled>Senden</button>
     </div>
     <script>
-        const chat = document.getElementById('chat');
-        const input = document.getElementById('input');
-        const send = document.getElementById('send');
-        const status = document.getElementById('status');
+        const chat = document.getElementById('chat'), input = document.getElementById('input');
+        const send = document.getElementById('send'), status = document.getElementById('status');
         const micbtn = document.getElementById('micbtn');
         const ws = new WebSocket(`ws://${location.host}/ws`);
         let mediaRecorder = null, audioChunks = [], isRecording = false;
@@ -103,10 +106,13 @@ HTML = """
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = `msg ${role}`;
-            if (role === 'chanti') div.innerHTML = `<div class="name">CHANTI</div>${text}`;
-            else div.textContent = text;
-            chat.appendChild(div);
-            chat.scrollTop = chat.scrollHeight;
+            if (role === 'chanti') {
+                const rendered = typeof marked !== 'undefined' ? marked.parse(text) : text;
+                div.innerHTML = `<div class="name">CHANTI</div>${rendered}`;
+            } else {
+                div.textContent = text;
+            }
+            chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
         }
         function addThinking() {
             const div = document.createElement('div');
@@ -130,8 +136,7 @@ HTML = """
                 const blob = new Blob(audioChunks, {type: 'audio/webm'});
                 const reader = new FileReader();
                 reader.onloadend = () => ws.send(JSON.stringify({type: 'audio', data: reader.result.split(',')[1]}));
-                reader.readAsDataURL(blob);
-                stream.getTracks().forEach(t => t.stop());
+                reader.readAsDataURL(blob); stream.getTracks().forEach(t => t.stop());
             };
             mediaRecorder.start(); isRecording = true;
             micbtn.classList.add('recording'); status.textContent = '🔴 Aufnahme läuft...';
@@ -163,8 +168,13 @@ async def chat_endpoint(request: Request):
     text = data.get("message", "")
     if not text:
         return {"response": "Keine Nachricht erhalten."}
-    history = [{"role": "system", "content": soul}, {"role": "user", "content": text}]
-    response = await asyncio.get_event_loop().run_in_executor(None, lambda: llm_chat(history))
+    reload_if_changed()
+    history = [{"role": "system", "content": soul}]
+    history.extend(load_recent_context(n=5))
+    history.append({"role": "user", "content": text})
+    response = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: llm_chat(history, tools=get_tools(), executors=get_executors())
+    )
     clean_response = parse_and_execute_commands(response)
     log_conversation(text, clean_response)
     return {"response": clean_response}
@@ -183,28 +193,35 @@ async def notify(request: Request):
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
+
     history = [{"role": "system", "content": soul}]
+    history.extend(load_recent_context(n=3))
+    print(f"[Chanti] Session gestartet, {len(history)-1} Kontext-Messages geladen")
 
     async def process_text(text: str, use_tts: bool = False):
+        reload_if_changed()
         history.append({"role": "user", "content": text})
-        action_result = detect_and_execute(text)
-        if action_result:
-            response_raw = action_result
-        else:
-            response_raw = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: llm_chat(history)
-            )
+
+        response_raw = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: llm_chat(history, tools=get_tools(), executors=get_executors())
+        )
+
         response = parse_and_execute_commands(response_raw)
         log_conversation(text, response)
         history.append({"role": "assistant", "content": response})
+
+        if len(history) > 21:
+            history[1:] = history[-20:]
+
         await websocket.send_json({"type": "message", "text": response})
         if use_tts:
-            await asyncio.get_event_loop().run_in_executor(None, lambda: speak(clean_for_tts(response)))
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: speak(clean_for_tts(response))
+            )
 
     try:
         while True:
             raw = await websocket.receive_text()
-
             try:
                 data = json.loads(raw)
             except Exception as e:

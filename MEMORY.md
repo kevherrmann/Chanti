@@ -1,0 +1,1 @@
+- [2026-04-14] MCPs die interessant sind: Bright Data, GitHub, Cloudflare, Supabase, Browserbase
