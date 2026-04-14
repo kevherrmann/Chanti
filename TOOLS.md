@@ -6,7 +6,6 @@
 
 ## Browser
 - "öffne [URL oder Stichwort]"
-- "suche auf youtube nach [Begriff]"
 
 ## Websuche
 - "suche nach [Begriff]" / "google [Begriff]"
@@ -14,6 +13,19 @@
 ## Blender (nur wenn aktiv)
 - "würfel erstellen", "kugel erstellen"
 - "szene abfragen", "alles löschen"
+
+## Eigene Dateien bearbeiten
+Chanti darf nur folgende Dateien lesen und schreiben:
+- SOUL.md – Persönlichkeit
+- USER.md – Fakten über Kevin
+- MEMORY.md – wichtige Ereignisse
+- IDENTITY.md – Fähigkeiten
+- TOOLS.md – diese Datei
+- chat.html – Web-Chat UI (Layout, Styles, Farben)
+- skills/*.py – eigene Skills
+
+WICHTIG: server.py, llm.py, memory.py und andere Python-Dateien
+außer Skills NIEMALS bearbeiten – nur lesen wenn nötig.
 
 ## Selbst-Befehle (intern, nicht aussprechen)
 - [MERKE: Fakt] → speichert Fakt in USER.md

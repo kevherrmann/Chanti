@@ -1,5 +1,4 @@
 """Skill: DuckDuckGo Websuche"""
-from duckduckgo_search import DDGS
 
 TOOL_DEFINITION = {
     "type": "function",
@@ -21,6 +20,11 @@ TOOL_DEFINITION = {
 
 def execute(query: str) -> str:
     try:
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
+
         results = list(DDGS().text(query, max_results=4, region="de-de"))
         if not results:
             return "Keine Ergebnisse gefunden."

@@ -41,6 +41,14 @@ until curl -s -X POST http://127.0.0.1:5500 -d "test" --output /dev/null 2>/dev/
 done
 echo "✅ XTTS bereit"
 
+# Wake Word Listener starten
+echo "🎤 Starte Wake Word Listener..."
+cd ~/chanti
+PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/python \
+    wakeword.py &
+WAKEWORD_PID=$!
+echo "✅ Wake Word bereit"
+
 # Chanti starten
 echo "🌐 Starte Chanti Web-UI auf http://localhost:8000"
 cd ~/chanti
@@ -48,4 +56,4 @@ PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/uvicorn \
     server:app --host 0.0.0.0 --port 8000
 
 # Cleanup beim Beenden
-trap "kill $XTTS_PID $N8N_PID $NGROK_PID 2>/dev/null" EXIT
+trap "kill $XTTS_PID $N8N_PID $NGROK_PID $WAKEWORD_PID 2>/dev/null" EXIT

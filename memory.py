@@ -19,11 +19,13 @@ def _read(path: Path) -> str:
 # ── System-Prompt ─────────────────────────────────────────────────────────────
 
 def load_system_prompt() -> str:
+    from datetime import datetime
+    today = datetime.now().strftime("%A, %d. %B %Y")
     """
     Kompakter System-Prompt: SOUL + USER-Fakten + MEMORY-Ereignisse.
     IDENTITY und TOOLS werden weggelassen um Token zu sparen.
     """
-    soul    = _read(SOUL_FILE)
+    soul    = f"Heute ist {today}.\n\n" + _read(SOUL_FILE)
     user    = _read(USER_FILE)
     memory  = _read(MEMORY_FILE)
 
@@ -102,10 +104,22 @@ def _is_duplicate(new: str, existing: list[str]) -> bool:
     return False
 
 
+# Fakten die nicht in USER.md gespeichert werden sollen
+_FACT_BLACKLIST = [
+    "datum", "uhrzeit", "heute", "uhr", "tag ist",
+    "chanti kann", "chanti ist", "chanti hat", "chanti erinnert",
+    "gedächtnis", "persistentes"
+]
+
 def add_user_fact(fact: str):
     """Fügt einen Fakt zu USER.md hinzu. Max 30, keine Duplikate."""
     fact = fact.strip().lstrip("- ")
     if not fact:
+        return
+    # Blacklist prüfen
+    fact_lower = fact.lower()
+    if any(blocked in fact_lower for blocked in _FACT_BLACKLIST):
+        print(f"[Memory] Fakt gefiltert: {fact[:50]}")
         return
     line = f"- {fact}"
     facts = _read_user_facts()

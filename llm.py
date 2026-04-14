@@ -51,7 +51,7 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
 
     print(f"[Chanti] Modell: {model}")
 
-    for _ in range(5):
+    for _ in range(8):
         resp = requests.post(
             GROQ_URL,
             headers={
@@ -88,7 +88,23 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
                     if fallback_resp.ok:
                         return fallback_resp.json()["choices"][0]["message"].get("content", "").strip()
 
-            resp.raise_for_status()
+            # Fallback: Nochmal ohne Tools versuchen
+            print(f"[Chanti] Versuche ohne Tools...")
+            fallback_resp = requests.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": list(messages),
+                    "temperature": 0.7,
+                    "max_tokens": 1024,
+                },
+                timeout=30
+            )
+            if fallback_resp.ok:
+                return fallback_resp.json()["choices"][0]["message"].get("content", "").strip()
+
+            return "Entschuldigung Kevin, da ist etwas schiefgelaufen. Versuch es nochmal."
 
         data = resp.json()
         choice = data["choices"][0]

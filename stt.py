@@ -6,7 +6,7 @@ from config import WHISPER_MODEL, WHISPER_DEVICE, WHISPER_LANGUAGE
 
 model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type="int8")
 
-DEVICE_INDEX = 7
+DEVICE_INDEX = 0
 NATIVE_SR = 44100
 TARGET_SR = 16000
 

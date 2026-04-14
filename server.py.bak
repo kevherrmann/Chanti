@@ -23,10 +23,6 @@ def get_whisper():
         print("[Chanti] Whisper bereit")
     return _whisper
 
-def _load_chat_html():
-    from pathlib import Path
-    return (Path(__file__).parent / "chat.html").read_text(encoding="utf-8")
-
 app = FastAPI()
 active_connections = []
 
@@ -73,6 +69,8 @@ HTML = """
         #send { background: #7c3aed; color: white; border: none; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-size: 0.95rem; }
         #send:hover { background: #6d28d9; }
         #send:disabled { background: #374151; cursor: not-allowed; }
+        #micbtn { background: #1e1b4b; border: 2px solid #7c3aed; color: #a78bfa; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
+        #micbtn.recording { background: #7c3aed; color: white; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(124,58,237,0.7); } 70% { box-shadow: 0 0 0 10px rgba(124,58,237,0); } 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); } }
         #status { font-size: 0.75rem; color: #6b7280; padding: 4px 16px 8px; }
         .chanti ul, .chanti ol { padding-left: 20px; margin: 4px 0; }
@@ -99,12 +97,15 @@ HTML = """
     <div id="status">Verbinde...</div>
     <div id="inputarea">
         <input id="input" type="text" placeholder="Schreib etwas..." autocomplete="off"/>
+        <button id="micbtn" title="Halten zum Sprechen">🎤</button>
         <button id="send" disabled>Senden</button>
     </div>
     <script>
         const chat = document.getElementById('chat'), input = document.getElementById('input');
         const send = document.getElementById('send'), status = document.getElementById('status');
+        const micbtn = document.getElementById('micbtn');
         const ws = new WebSocket(`ws://${location.host}/ws`);
+        let mediaRecorder = null, audioChunks = [], isRecording = false;
         ws.onopen = () => { status.textContent = 'Verbunden ✓'; send.disabled = false; };
         ws.onclose = () => { status.textContent = 'Verbindung getrennt'; send.disabled = true; };
         ws.onmessage = (e) => {
@@ -154,6 +155,29 @@ HTML = """
         }
         send.onclick = sendMessage;
         input.onkeydown = (e) => { if (e.key === 'Enter') sendMessage(); };
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+            mediaRecorder = new MediaRecorder(stream); audioChunks = [];
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(audioChunks, {type: 'audio/webm'});
+                const reader = new FileReader();
+                reader.onloadend = () => ws.send(JSON.stringify({type: 'audio', data: reader.result.split(',')[1]}));
+                reader.readAsDataURL(blob); stream.getTracks().forEach(t => t.stop());
+            };
+            mediaRecorder.start(); isRecording = true;
+            micbtn.classList.add('recording'); status.textContent = '🔴 Aufnahme läuft...';
+        }
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop(); isRecording = false;
+                micbtn.classList.remove('recording'); status.textContent = 'Verbunden ✓';
+            }
+        }
+        micbtn.addEventListener('mousedown', startRecording);
+        micbtn.addEventListener('mouseup', stopRecording);
+        micbtn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+        micbtn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
     </script>
 </body>
 </html>
@@ -162,7 +186,7 @@ HTML = """
 
 @app.get("/")
 async def index():
-    return HTMLResponse(_load_chat_html())
+    return HTMLResponse(HTML)
 
 
 @app.post("/chat")
