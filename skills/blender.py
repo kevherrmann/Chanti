@@ -1,7 +1,4 @@
 """Skill: Blender via MCP steuern"""
-import sys
-import os
-sys.path.insert(0, os.path.expanduser("~/chanti"))
 import blender_ctrl as bl
 
 TOOL_DEFINITION = {

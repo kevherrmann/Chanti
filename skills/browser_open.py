@@ -1,5 +1,9 @@
 """Skill: Browser öffnen oder YouTube suchen"""
 import subprocess
+import logging
+from urllib.parse import urlparse
+
+logger = logging.getLogger("chanti")
 
 TOOL_DEFINITION = {
     "type": "function",
@@ -19,8 +23,18 @@ TOOL_DEFINITION = {
     }
 }
 
+
 def execute(url: str) -> str:
     if not url.startswith("http"):
         url = f"https://{url}"
-    subprocess.Popen(["xdg-open", url])
-    return f"Öffne {url} im Browser."
+    # Basis-Validierung: muss eine echte URL sein
+    parsed = urlparse(url)
+    if not parsed.scheme or not parsed.netloc:
+        return f"Ungültige URL: {url}"
+    try:
+        subprocess.Popen(["xdg-open", url])
+        return f"Öffne {url} im Browser."
+    except FileNotFoundError:
+        return "xdg-open nicht gefunden – läuft das System ohne Desktop?"
+    except Exception as e:
+        return f"Fehler beim Öffnen: {e}"

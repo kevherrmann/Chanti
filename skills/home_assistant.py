@@ -1,9 +1,9 @@
 """Skill: Home Assistant Lampen steuern"""
 import requests
-import sys
-import os
-sys.path.insert(0, os.path.expanduser("~/chanti"))
+import logging
 from config import HA_URL, HA_TOKEN
+
+logger = logging.getLogger("chanti")
 
 HEADERS = {
     "Authorization": f"Bearer {HA_TOKEN}",
@@ -65,14 +65,30 @@ TOOL_DEFINITION = {
     }
 }
 
-def _call(entity_id, service, extra={}):
+
+def _call(entity_id, service, extra=None):
+    if extra is None:
+        extra = {}
     if isinstance(entity_id, list):
         for e in entity_id:
             _call(e, service, extra)
         return
     domain = "switch" if entity_id.startswith("switch.") else "light"
-    requests.post(f"{HA_URL}/api/services/{domain}/{service}",
-                  headers=HEADERS, json={"entity_id": entity_id, **extra}, timeout=10)
+    try:
+        resp = requests.post(
+            f"{HA_URL}/api/services/{domain}/{service}",
+            headers=HEADERS,
+            json={"entity_id": entity_id, **extra},
+            timeout=10
+        )
+        resp.raise_for_status()
+    except requests.exceptions.ConnectionError:
+        logger.warning("Home Assistant nicht erreichbar")
+        raise RuntimeError("Home Assistant nicht erreichbar")
+    except requests.exceptions.HTTPError as e:
+        logger.warning(f"Home Assistant Fehler: {e}")
+        raise
+
 
 def execute(lampe: str, aktion: str = None, farbe: str = None, helligkeit: int = None) -> str:
     lampe_key = lampe.lower().strip()
@@ -80,18 +96,23 @@ def execute(lampe: str, aktion: str = None, farbe: str = None, helligkeit: int =
     if not entity_id:
         return f"Lampe '{lampe}' nicht gefunden."
 
-    if farbe:
-        params = FARBEN.get(farbe.lower(), {})
-        _call(entity_id, "turn_on", params)
-        return f"{lampe.capitalize()} auf {farbe} gesetzt."
+    try:
+        if farbe:
+            params = FARBEN.get(farbe.lower(), {})
+            _call(entity_id, "turn_on", params)
+            return f"{lampe.capitalize()} auf {farbe} gesetzt."
 
-    if helligkeit is not None:
-        _call(entity_id, "turn_on", {"brightness": int(helligkeit * 2.55)})
-        return f"{lampe.capitalize()} auf {helligkeit}% Helligkeit."
+        if helligkeit is not None:
+            _call(entity_id, "turn_on", {"brightness": int(helligkeit * 2.55)})
+            return f"{lampe.capitalize()} auf {helligkeit}% Helligkeit."
 
-    if aktion == "aus":
-        _call(entity_id, "turn_off")
-        return f"{lampe.capitalize()} ausgeschaltet."
+        if aktion == "aus":
+            _call(entity_id, "turn_off")
+            return f"{lampe.capitalize()} ausgeschaltet."
 
-    _call(entity_id, "turn_on")
-    return f"{lampe.capitalize()} eingeschaltet."
+        _call(entity_id, "turn_on")
+        return f"{lampe.capitalize()} eingeschaltet."
+    except RuntimeError as e:
+        return str(e)
+    except Exception as e:
+        return f"Fehler bei Lampensteuerung: {e}"

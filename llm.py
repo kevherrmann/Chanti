@@ -2,9 +2,15 @@
 import requests
 import json
 import re
+import logging
 from config import GROQ_API_KEY, GROQ_MODEL, GROQ_MODEL_TOOLS
 
+logger = logging.getLogger("chanti")
+
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Maximale Tool-Call-Runden pro Anfrage
+MAX_TOOL_ROUNDS = 8
 
 
 def _parse_failed_generation(failed_gen: str, executors: dict) -> str | None:
@@ -22,13 +28,26 @@ def _parse_failed_generation(failed_gen: str, executors: dict) -> str | None:
     except Exception:
         return None
 
-    print(f"[Chanti] Fallback Tool-Call: {fn_name}({fn_args})")
+    logger.info(f"Fallback Tool-Call: {fn_name}({fn_args})")
     if fn_name in executors:
         try:
             return str(executors[fn_name](**fn_args))
         except Exception as e:
             return f"Fehler: {e}"
     return None
+
+
+def _groq_request(payload: dict, timeout: int = 30) -> requests.Response:
+    """Zentraler Groq-API-Call mit Error-Handling."""
+    return requests.post(
+        GROQ_URL,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json=payload,
+        timeout=timeout
+    )
 
 
 def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None) -> str:
@@ -49,32 +68,29 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
         payload["tool_choice"] = "auto"
         payload["parallel_tool_calls"] = False
 
-    print(f"[Chanti] Modell: {model}")
+    logger.info(f"Modell: {model}")
 
-    for _ in range(8):
-        resp = requests.post(
-            GROQ_URL,
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=30
-        )
+    for round_num in range(MAX_TOOL_ROUNDS):
+        try:
+            resp = _groq_request(payload)
+        except requests.exceptions.Timeout:
+            logger.error("Groq Timeout")
+            return "Entschuldigung Kevin, die Anfrage hat zu lange gedauert."
+        except requests.exceptions.ConnectionError:
+            logger.error("Groq nicht erreichbar")
+            return "Entschuldigung Kevin, ich kann Groq gerade nicht erreichen."
 
         if not resp.ok:
             error_data = resp.json().get("error", {})
             failed_gen = error_data.get("failed_generation", "")
-            print(f"[Chanti] Groq Fehler {resp.status_code}: {error_data.get('message', '')}")
+            logger.warning(f"Groq Fehler {resp.status_code}: {error_data.get('message', '')}")
 
             if failed_gen and executors:
                 tool_result = _parse_failed_generation(failed_gen, executors)
                 if tool_result:
-                    print(f"[Chanti] Fallback erfolgreich, sende Ergebnis zurück")
-                    fallback_resp = requests.post(
-                        GROQ_URL,
-                        headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                        json={
+                    logger.info("Fallback erfolgreich, sende Ergebnis zurück")
+                    try:
+                        fallback_resp = _groq_request({
                             "model": GROQ_MODEL,
                             "messages": list(messages) + [{
                                 "role": "user",
@@ -82,27 +98,25 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
                             }],
                             "temperature": 0.7,
                             "max_tokens": 1024,
-                        },
-                        timeout=30
-                    )
-                    if fallback_resp.ok:
-                        return fallback_resp.json()["choices"][0]["message"].get("content", "").strip()
+                        })
+                        if fallback_resp.ok:
+                            return fallback_resp.json()["choices"][0]["message"].get("content", "").strip()
+                    except requests.exceptions.RequestException:
+                        pass
 
             # Fallback: Nochmal ohne Tools versuchen
-            print(f"[Chanti] Versuche ohne Tools...")
-            fallback_resp = requests.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                json={
+            logger.info("Versuche ohne Tools...")
+            try:
+                fallback_resp = _groq_request({
                     "model": GROQ_MODEL,
                     "messages": list(messages),
                     "temperature": 0.7,
                     "max_tokens": 1024,
-                },
-                timeout=30
-            )
-            if fallback_resp.ok:
-                return fallback_resp.json()["choices"][0]["message"].get("content", "").strip()
+                })
+                if fallback_resp.ok:
+                    return fallback_resp.json()["choices"][0]["message"].get("content", "").strip()
+            except requests.exceptions.RequestException:
+                pass
 
             return "Entschuldigung Kevin, da ist etwas schiefgelaufen. Versuch es nochmal."
 
@@ -129,7 +143,7 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
             except Exception:
                 fn_args = {}
 
-            print(f"[Chanti] Tool-Call: {fn_name}({fn_args})")
+            logger.info(f"Tool-Call #{round_num+1}: {fn_name}({fn_args})")
 
             if executors and fn_name in executors:
                 try:
@@ -139,7 +153,7 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
             else:
                 result = f"Tool '{fn_name}' nicht verfügbar."
 
-            print(f"[Chanti] Ergebnis: {str(result)[:300]}")
+            logger.debug(f"Ergebnis: {str(result)[:300]}")
 
             local_messages.append({
                 "role": "tool",
@@ -152,15 +166,18 @@ def chat(messages: list[dict], tools: list[dict] = None, executors: dict = None)
 
 
 def raw_chat(prompt: str) -> str:
-    resp = requests.post(
-        GROQ_URL,
-        headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-        json={
+    """Einfacher Chat ohne Tools. Mit Error-Handling."""
+    try:
+        resp = _groq_request({
             "model": GROQ_MODEL,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0,
             "max_tokens": 50
-        },
-        timeout=30
-    )
-    return resp.json()["choices"][0]["message"]["content"].strip()
+        })
+        if not resp.ok:
+            logger.error(f"raw_chat Fehler: {resp.status_code}")
+            return ""
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"raw_chat Netzwerkfehler: {e}")
+        return ""

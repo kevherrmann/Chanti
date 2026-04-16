@@ -5,19 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chanti</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
 
         :root {
-            --neon: #b347ff;
-            --neon2: #00f0ff;
-            --neon3: #ff2d78;
-            --bg: #070711;
-            --bg2: #0d0d1a;
-            --bg3: #12122a;
-            --border: rgba(179,71,255,0.25);
-            --text: #e0d4ff;
-            --muted: #6b5f8a;
+            --green:      #00ff41;
+            --green2:     #00cc33;
+            --green3:     #39ff14;
+            --green-dim:  #00882a;
+            --green-dark: #003a0f;
+            --bg:         #000300;
+            --bg2:        #010a03;
+            --bg3:        #021005;
+            --border:     rgba(0,255,65,0.18);
+            --text:       #b8ffb8;
+            --muted:      #1e6b2e;
+            --red:        #ff3333;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -25,22 +29,35 @@
         body {
             background: var(--bg);
             color: var(--text);
-            font-family: 'Rajdhani', sans-serif;
+            font-family: 'Share Tech Mono', monospace;
             height: 100vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
 
-        /* Animated grid background */
-        body::before {
+        /* Matrix Rain Canvas */
+        #matrix-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+            opacity: 0.08;
+            pointer-events: none;
+        }
+
+        /* CRT Scanlines */
+        body::after {
             content: '';
             position: fixed;
             inset: 0;
-            background-image:
-                linear-gradient(rgba(179,71,255,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(179,71,255,0.03) 1px, transparent 1px);
-            background-size: 40px 40px;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,0,0,0.1) 2px,
+                rgba(0,0,0,0.1) 4px
+            );
             pointer-events: none;
             z-index: 0;
         }
@@ -48,7 +65,6 @@
         /* ── Header ── */
         header {
             position: relative;
-            padding: 0;
             z-index: 10;
             flex-shrink: 0;
         }
@@ -57,122 +73,116 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 24px;
-            background: linear-gradient(180deg, #0d0020 0%, var(--bg2) 100%);
+            padding: 10px 24px;
+            background: linear-gradient(180deg, #000800 0%, var(--bg2) 100%);
             border-bottom: 1px solid var(--border);
+            position: relative;
         }
 
-        .header-inner::after {
+        .header-inner::before {
             content: '';
             position: absolute;
-            bottom: 0; left: 0; right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--neon), var(--neon2), var(--neon3), var(--neon), transparent);
-            animation: scanline 3s linear infinite;
+            bottom: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), var(--green3), var(--green), transparent);
+            animation: scanline 4s linear infinite;
+            box-shadow: 0 0 8px var(--green);
         }
 
         @keyframes scanline {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
+            0%   { background-position: -200% 0; }
+            100% { background-position:  200% 0; }
         }
 
         .logo-area {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
         }
 
-        .logo-hex {
-            width: 42px;
-            height: 42px;
-            position: relative;
-            flex-shrink: 0;
+        .logo-bracket {
+            font-size: 1.8rem;
+            color: var(--green);
+            text-shadow: 0 0 10px var(--green), 0 0 20px var(--green);
+            line-height: 1;
+            letter-spacing: -4px;
         }
-
-        .logo-hex svg { width: 100%; height: 100%; }
 
         .logo-text h1 {
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 1.6rem;
+            font-size: 1.5rem;
             font-weight: 400;
-            letter-spacing: 6px;
-            color: #fff;
-            text-shadow: 0 0 20px var(--neon), 0 0 40px var(--neon);
-            animation: glitch 8s infinite;
+            letter-spacing: 8px;
+            color: var(--green);
+            text-shadow: 0 0 10px var(--green), 0 0 30px var(--green2);
+            animation: glitch 10s infinite;
         }
 
         @keyframes glitch {
-            0%, 92%, 100% { text-shadow: 0 0 20px var(--neon), 0 0 40px var(--neon); clip-path: none; transform: none; }
-            93% { clip-path: inset(20% 0 60% 0); transform: translate(-2px, 0); text-shadow: 2px 0 var(--neon3); }
-            94% { clip-path: inset(60% 0 10% 0); transform: translate(2px, 0); text-shadow: -2px 0 var(--neon2); }
-            95% { clip-path: none; transform: none; text-shadow: 0 0 20px var(--neon), 0 0 40px var(--neon); }
+            0%,90%,100% {
+                text-shadow: 0 0 10px var(--green), 0 0 30px var(--green2);
+                clip-path: none; transform: none;
+            }
+            91% { clip-path: inset(15% 0 70% 0); transform: translate(-3px,0); text-shadow: 3px 0 var(--red); }
+            92% { clip-path: inset(65% 0 10% 0); transform: translate(3px,0);  text-shadow: -3px 0 var(--green3); }
+            93% { clip-path: none; transform: none; }
         }
 
         .logo-text p {
-            font-size: 0.7rem;
-            letter-spacing: 3px;
+            font-size: 0.58rem;
+            letter-spacing: 4px;
             color: var(--muted);
-            font-family: 'Share Tech Mono', monospace;
         }
 
         .header-stats {
             display: flex;
-            gap: 20px;
+            gap: 24px;
             align-items: center;
         }
 
-        .stat {
-            text-align: center;
-        }
+        .stat { text-align: center; }
 
         .stat-val {
-            font-family: 'Share Tech Mono', monospace;
             font-size: 1rem;
-            color: var(--neon2);
+            color: var(--green);
+            text-shadow: 0 0 8px var(--green);
         }
 
         .stat-label {
-            font-size: 0.6rem;
+            font-size: 0.52rem;
             letter-spacing: 2px;
             color: var(--muted);
         }
 
         .status-dot {
-            width: 8px;
-            height: 8px;
+            width: 8px; height: 8px;
             border-radius: 50%;
-            background: #00ff88;
-            box-shadow: 0 0 8px #00ff88;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green), 0 0 16px var(--green);
             animation: blink 2s ease-in-out infinite;
         }
 
         @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+            0%,100% { opacity: 1; }
+            50%      { opacity: 0.15; }
         }
 
         /* ── Wake Word Overlay ── */
         #ww-overlay {
             display: none;
             position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(7,7,17,0.85);
-            backdrop-filter: blur(8px);
+            inset: 0;
+            background: rgba(0,3,0,0.94);
+            backdrop-filter: blur(4px);
             z-index: 100;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            border: 1px solid var(--neon);
-            box-shadow: inset 0 0 80px rgba(179,71,255,0.1);
         }
 
         .ww-ring {
-            width: 100px;
-            height: 100px;
+            width: 110px; height: 110px;
             border-radius: 50%;
-            border: 2px solid var(--neon);
-            box-shadow: 0 0 30px var(--neon);
+            border: 2px solid var(--green);
+            box-shadow: 0 0 30px var(--green), 0 0 60px var(--green2);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -181,16 +191,16 @@
         }
 
         @keyframes ringpulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 30px var(--neon); }
-            50% { transform: scale(1.1); box-shadow: 0 0 60px var(--neon), 0 0 100px var(--neon); }
+            0%,100% { transform: scale(1);   box-shadow: 0 0 30px var(--green); }
+            50%      { transform: scale(1.1); box-shadow: 0 0 70px var(--green), 0 0 120px var(--green3); }
         }
 
         #ww-label {
-            margin-top: 20px;
-            font-family: 'Share Tech Mono', monospace;
-            letter-spacing: 4px;
-            color: var(--neon);
-            font-size: 0.9rem;
+            margin-top: 24px;
+            letter-spacing: 6px;
+            color: var(--green);
+            font-size: 0.85rem;
+            text-shadow: 0 0 10px var(--green);
         }
 
         /* ── Chat ── */
@@ -200,107 +210,111 @@
             padding: 20px 24px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
             z-index: 1;
             position: relative;
         }
 
-        #chat::-webkit-scrollbar { width: 4px; }
+        #chat::-webkit-scrollbar { width: 3px; }
         #chat::-webkit-scrollbar-track { background: transparent; }
-        #chat::-webkit-scrollbar-thumb { background: var(--neon); border-radius: 2px; }
+        #chat::-webkit-scrollbar-thumb { background: var(--green-dim); }
 
         .msg {
-            max-width: 72%;
+            max-width: 74%;
             padding: 12px 16px;
-            font-size: 0.95rem;
-            line-height: 1.6;
+            font-size: 0.88rem;
+            line-height: 1.7;
             position: relative;
         }
 
         .user {
             align-self: flex-end;
-            background: linear-gradient(135deg, #1a0030, #0d001f);
-            border: 1px solid var(--neon);
-            border-radius: 12px 2px 12px 12px;
-            color: #e8d5ff;
+            background: linear-gradient(135deg, #001a05, #000d02);
+            border: 1px solid var(--green-dim);
+            color: #99ee99;
         }
 
         .user::after {
             content: '';
             position: absolute;
             top: -1px; right: -1px;
-            width: 8px; height: 8px;
-            background: var(--neon);
+            width: 10px; height: 10px;
+            background: var(--green-dim);
         }
 
         .chanti {
             align-self: flex-start;
-            background: linear-gradient(135deg, #001a2a, #000d1a);
-            border: 1px solid var(--neon2);
-            border-radius: 2px 12px 12px 12px;
-            color: #d0f4ff;
+            background: linear-gradient(135deg, #000f03, #000500);
+            border: 1px solid var(--green);
+            color: var(--text);
+            box-shadow: 0 0 15px rgba(0,255,65,0.07);
         }
 
         .chanti::before {
             content: '';
             position: absolute;
             top: -1px; left: -1px;
-            width: 8px; height: 8px;
-            background: var(--neon2);
+            width: 10px; height: 10px;
+            background: var(--green);
+            box-shadow: 0 0 8px var(--green);
         }
 
         .msg-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 6px;
+            margin-bottom: 7px;
         }
 
         .name {
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 0.65rem;
-            letter-spacing: 2px;
-            color: var(--neon2);
+            font-size: 0.6rem;
+            letter-spacing: 3px;
+            color: var(--green);
+            text-shadow: 0 0 6px var(--green);
         }
 
+        .user .name { color: var(--green-dim); text-shadow: none; }
+
         .msg-time {
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 0.6rem;
+            font-size: 0.56rem;
             color: var(--muted);
         }
 
-        .user .name { color: var(--neon); }
-        .user .msg-time { color: var(--muted); }
+        .chanti p  { margin: 4px 0; }
+        .chanti ul,
+        .chanti ol { padding-left: 20px; margin: 4px 0; }
+        .chanti code {
+            background: rgba(0,255,65,0.07);
+            border: 1px solid rgba(0,255,65,0.18);
+            padding: 1px 5px;
+            font-size: 0.85em;
+            color: var(--green3);
+        }
+        .chanti strong { color: var(--green); }
+        .chanti a { color: var(--green2); }
 
         .thinking {
             align-self: flex-start;
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 0.8rem;
-            color: var(--muted);
-            letter-spacing: 2px;
+            font-size: 0.75rem;
+            color: var(--green-dim);
+            letter-spacing: 3px;
             padding: 8px 16px;
+            border-left: 2px solid var(--green-dim);
         }
 
         .thinking::after {
-            content: '...';
-            animation: dots 1.5s infinite;
+            content: '_';
+            animation: cursor 0.8s step-end infinite;
         }
 
-        @keyframes dots {
-            0%, 100% { content: '.'; }
-            33% { content: '..'; }
-            66% { content: '...'; }
+        @keyframes cursor {
+            0%,100% { opacity: 1; }
+            50%      { opacity: 0; }
         }
-
-        /* Markdown styles inside chat */
-        .chanti p { margin: 4px 0; }
-        .chanti ul, .chanti ol { padding-left: 20px; margin: 4px 0; }
-        .chanti code { background: rgba(0,240,255,0.1); border: 1px solid rgba(0,240,255,0.2); padding: 1px 5px; border-radius: 3px; font-family: 'Share Tech Mono', monospace; font-size: 0.85em; }
-        .chanti strong { color: var(--neon2); font-weight: 600; }
 
         /* ── Input Area ── */
         #inputarea {
-            padding: 16px 24px;
+            padding: 12px 24px 12px 44px;
             display: flex;
             gap: 12px;
             align-items: center;
@@ -314,43 +328,49 @@
         #inputarea::before {
             content: '';
             position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--neon2), transparent);
+            top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+        }
+
+        /* Prompt > */
+        #prompt-sym {
+            position: absolute;
+            left: 26px;
+            font-size: 1rem;
+            color: var(--green);
+            text-shadow: 0 0 8px var(--green);
+            pointer-events: none;
+            z-index: 1;
         }
 
         #input {
             flex: 1;
-            background: var(--bg3);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 12px 16px;
-            border-radius: 4px;
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 1rem;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--green-dim);
+            color: var(--green);
+            padding: 6px 8px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.92rem;
             outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            letter-spacing: 0.5px;
+            caret-color: var(--green);
+            letter-spacing: 1px;
+            transition: border-color 0.2s;
         }
 
         #input::placeholder { color: var(--muted); }
-
-        #input:focus {
-            border-color: var(--neon);
-            box-shadow: 0 0 12px rgba(179,71,255,0.2);
-        }
+        #input:focus { border-bottom-color: var(--green); }
 
         #send {
             background: transparent;
-            border: 1px solid var(--neon);
-            color: var(--neon);
-            padding: 12px 24px;
-            border-radius: 4px;
+            border: 1px solid var(--green-dim);
+            color: var(--green-dim);
+            padding: 7px 18px;
             cursor: pointer;
             font-family: 'Share Tech Mono', monospace;
-            font-size: 0.8rem;
-            letter-spacing: 2px;
-            transition: all 0.2s;
+            font-size: 0.72rem;
+            letter-spacing: 3px;
+            transition: all 0.15s;
             position: relative;
             overflow: hidden;
         }
@@ -359,46 +379,137 @@
             content: '';
             position: absolute;
             inset: 0;
-            background: var(--neon);
+            background: var(--green);
             transform: translateX(-100%);
-            transition: transform 0.2s;
+            transition: transform 0.15s;
             z-index: -1;
         }
 
-        #send:hover { color: #000; }
+        #send:hover { color: #000; border-color: var(--green); box-shadow: 0 0 12px var(--green); }
         #send:hover::before { transform: translateX(0); }
-        #send:disabled { opacity: 0.3; cursor: not-allowed; }
+        #send:disabled { opacity: 0.2; cursor: not-allowed; }
+        #send:disabled:hover { color: var(--green-dim); box-shadow: none; }
         #send:disabled::before { transform: translateX(-100%); }
-        #send:disabled:hover { color: var(--neon); }
 
         #statusbar {
-            font-family: 'Share Tech Mono', monospace;
-            font-size: 0.65rem;
+            position: absolute;
+            right: 24px;
+            bottom: 100%;
+            transform: translateY(-2px);
+            font-size: 0.55rem;
             color: var(--muted);
-            letter-spacing: 1px;
-            padding: 0 4px;
-            white-space: nowrap;
+            letter-spacing: 2px;
         }
+
+        /* ── Command Legend ── */
+        #legend-toggle {
+            position: fixed;
+            bottom: 76px;
+            right: 20px;
+            z-index: 50;
+            background: transparent;
+            border: 1px solid var(--green-dim);
+            color: var(--green-dim);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.62rem;
+            letter-spacing: 2px;
+            padding: 6px 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        #legend-toggle:hover {
+            background: var(--green);
+            color: #000;
+            border-color: var(--green);
+            box-shadow: 0 0 14px var(--green);
+        }
+
+        #legend-panel {
+            position: fixed;
+            bottom: 120px;
+            right: 20px;
+            width: 340px;
+            max-height: 0;
+            overflow: hidden;
+            z-index: 50;
+            transition: max-height 0.35s cubic-bezier(0.4,0,0.2,1), opacity 0.25s;
+            opacity: 0;
+        }
+
+        #legend-panel.open {
+            max-height: calc(100vh - 160px);
+            opacity: 1;
+        }
+
+        .legend-inner {
+            background: #000a02;
+            border: 1px solid var(--border);
+            position: relative;
+            padding: 16px;
+            overflow-y: auto;
+            max-height: calc(100vh - 180px);
+            box-shadow: 0 0 30px rgba(0,255,65,0.06);
+        }
+
+        .legend-inner::-webkit-scrollbar { width: 2px; }
+        .legend-inner::-webkit-scrollbar-thumb { background: var(--green-dim); }
+
+        .legend-inner::before {
+            content: ''; position: absolute;
+            top: -1px; left: -1px; width: 14px; height: 14px;
+            border-top: 1px solid var(--green); border-left: 1px solid var(--green);
+        }
+        .legend-inner::after {
+            content: ''; position: absolute;
+            bottom: -1px; right: -1px; width: 14px; height: 14px;
+            border-bottom: 1px solid var(--green); border-right: 1px solid var(--green);
+        }
+
+        .legend-glow {
+            position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+        }
+
+        .legend-title {
+            font-size: 0.56rem; letter-spacing: 5px;
+            color: var(--green); text-shadow: 0 0 6px var(--green);
+            margin-bottom: 14px; padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .legend-section { margin-bottom: 12px; }
+
+        .legend-section-title {
+            font-size: 0.56rem; letter-spacing: 3px;
+            color: var(--green-dim); margin-bottom: 6px;
+        }
+
+        .legend-cmd {
+            display: flex; gap: 8px; align-items: baseline;
+            padding: 4px 0; border-bottom: 1px solid rgba(0,255,65,0.04);
+        }
+        .legend-cmd:last-child { border-bottom: none; }
+
+        .legend-cmd code {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.65rem; color: var(--green);
+            background: rgba(0,255,65,0.06);
+            border: 1px solid rgba(0,255,65,0.14);
+            padding: 1px 6px; white-space: nowrap; flex-shrink: 0;
+        }
+
+        .legend-cmd span { color: var(--muted); font-size: 0.72rem; line-height: 1.3; }
     </style>
 </head>
 <body>
+
+    <canvas id="matrix-canvas"></canvas>
+
     <header>
         <div class="header-inner">
             <div class="logo-area">
-                <div class="logo-hex">
-                    <svg viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <polygon points="21,2 38,11 38,31 21,40 4,31 4,11" fill="none" stroke="#b347ff" stroke-width="1.5"/>
-                        <polygon points="21,8 33,14.5 33,27.5 21,34 9,27.5 9,14.5" fill="rgba(179,71,255,0.08)" stroke="#00f0ff" stroke-width="0.8"/>
-                        <circle cx="21" cy="21" r="5" fill="none" stroke="#b347ff" stroke-width="1.5"/>
-                        <circle cx="21" cy="21" r="2" fill="#b347ff"/>
-                        <line x1="21" y1="8" x2="21" y2="16" stroke="#b347ff" stroke-width="0.8" opacity="0.6"/>
-                        <line x1="21" y1="26" x2="21" y2="34" stroke="#b347ff" stroke-width="0.8" opacity="0.6"/>
-                        <line x1="9" y1="14.5" x2="16" y2="18.5" stroke="#b347ff" stroke-width="0.8" opacity="0.6"/>
-                        <line x1="26" y1="23.5" x2="33" y2="27.5" stroke="#b347ff" stroke-width="0.8" opacity="0.6"/>
-                        <line x1="33" y1="14.5" x2="26" y2="18.5" stroke="#b347ff" stroke-width="0.8" opacity="0.6"/>
-                        <line x1="16" y1="23.5" x2="9" y2="27.5" stroke="#b347ff" stroke-width="0.8" opacity="0.6"/>
-                    </svg>
-                </div>
+                <div class="logo-bracket">[|]</div>
                 <div class="logo-text">
                     <h1>CHANTI</h1>
                     <p>PERSONAL AI SYSTEM v2.0</p>
@@ -426,117 +537,274 @@
     <div id="chat"></div>
 
     <div id="inputarea">
+        <span id="prompt-sym">&gt;</span>
         <span id="statusbar">OFFLINE</span>
         <input id="input" type="text" placeholder="EINGABE_" autocomplete="off"/>
-        <button id="send" disabled>SENDEN</button>
+        <button id="send" disabled>EXEC</button>
+    </div>
+
+    <button id="legend-toggle" onclick="toggleLegend()">⌘ BEFEHLE</button>
+    <div id="legend-panel">
+        <div class="legend-inner">
+            <div class="legend-glow"></div>
+            <div class="legend-title">VERFÜGBARE BEFEHLE</div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// LEAD GENERATOR</div>
+                <div class="legend-cmd">
+                    <code>Such mir X [Branche] in [Ort]</code>
+                    <span>Findet Firmen ohne/mit schlechter Website</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>5 Baufirmen in Ibbenbüren</code>
+                    <span>Ergebnis als JSON in leads/ gespeichert</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// FIRMENDOSSIER</div>
+                <div class="legend-cmd">
+                    <code>Recherchiere [Firma] in [Ort]</code>
+                    <span>Vollanalyse → JSON + HTML in research/</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Recherchiere alle Leads</code>
+                    <span>Analysiert alle Firmen aus letzter Suche</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Zeig mir alle Dossiers</code>
+                    <span>Index-HTML aller Firmen (suchbar + filterbar)</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// KALTAKQUISE</div>
+                <div class="legend-cmd">
+                    <code>Schreib eine E-Mail für [Firma]</code>
+                    <span>Personalisierte Mail aus Dossier → emails/</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Schreib eine lockere E-Mail für [Firma]</code>
+                    <span>Stil: formell / locker / kurz</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// SMART HOME</div>
+                <div class="legend-cmd">
+                    <code>[Lampe] an/aus/[Farbe]/[%]</code>
+                    <span>z.B. "Ringlampe lila" oder "alle 50%"</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// WEB & SUCHE</div>
+                <div class="legend-cmd">
+                    <code>Suche [Begriff]</code>
+                    <span>DuckDuckGo Websuche</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Öffne [URL / Begriff]</code>
+                    <span>Browser öffnen</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Lies [URL]</code>
+                    <span>Webseite lesen und zusammenfassen</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// GEDÄCHTNIS</div>
+                <div class="legend-cmd">
+                    <code>Merke: [Fakt]</code>
+                    <span>Speichert in USER.md</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Was weißt du über mich?</code>
+                    <span>Zeigt gespeicherte Fakten</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// SYSTEM</div>
+                <div class="legend-cmd">
+                    <code>Zeig deine Skills</code>
+                    <span>Liste aller geladenen Skills</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Bearbeite [Datei]</code>
+                    <span>SOUL.md, USER.md, TOOLS.md etc.</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        const chat = document.getElementById('chat');
-        const input = document.getElementById('input');
-        const send = document.getElementById('send');
-        const statusbar = document.getElementById('statusbar');
-        const statusDot = document.getElementById('status-dot');
-        const msgCount = document.getElementById('msg-count');
-        const clockEl = document.getElementById('clock');
-        let count = 0;
+        // ── Matrix Rain ──────────────────────────────
+        (function() {
+            const canvas  = document.getElementById('matrix-canvas');
+            const ctx     = canvas.getContext('2d');
+            const chars   = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ><|/\\{}[]';
+            const arr     = chars.split('');
+            const fontSize = 13;
+            let cols, drops;
 
-        function updateClock() {
-            const now = new Date();
-            clockEl.textContent = now.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-        }
-        updateClock();
-        setInterval(updateClock, 1000);
+            function resize() {
+                canvas.width  = window.innerWidth;
+                canvas.height = window.innerHeight;
+                cols  = Math.floor(canvas.width / fontSize);
+                drops = Array(cols).fill(1);
+            }
 
-        const ws = new WebSocket(`ws://${location.host}/ws`);
+            function draw() {
+                ctx.fillStyle = 'rgba(0,3,0,0.04)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.font = fontSize + 'px Share Tech Mono';
 
-        ws.onopen = () => {
-            statusbar.textContent = 'VERBUNDEN //';
-            statusDot.style.background = '#00ff88';
-            statusDot.style.boxShadow = '0 0 8px #00ff88';
-            send.disabled = false;
-        };
+                for (let i = 0; i < drops.length; i++) {
+                    const char = arr[Math.floor(Math.random() * arr.length)];
+                    const y    = drops[i] * fontSize;
+                    // Brightest character at the front of the drop
+                    if (y < fontSize * 2) {
+                        ctx.fillStyle = '#ffffff';
+                    } else {
+                        ctx.fillStyle = '#00ff41';
+                    }
+                    ctx.fillText(char, i * fontSize, y);
 
-        ws.onclose = () => {
-            statusbar.textContent = 'VERBINDUNG GETRENNT';
-            statusDot.style.background = '#ff2d78';
-            statusDot.style.boxShadow = '0 0 8px #ff2d78';
-            send.disabled = true;
-        };
-
-        ws.onmessage = (e) => {
-            const data = JSON.parse(e.data);
-            const thinking = document.getElementById('thinking');
-            if (thinking) thinking.remove();
-
-            if (data.type === 'message') {
-                addMessage('chanti', data.text);
-                send.disabled = false;
-                input.focus();
-            } else if (data.type === 'transcript') {
-                addMessage('user', data.text);
-                addThinking();
-            } else if (data.type === 'wakeword') {
-                const overlay = document.getElementById('ww-overlay');
-                const label = document.getElementById('ww-label');
-                if (data.event === 'listening') {
-                    overlay.style.display = 'flex';
-                    label.textContent = 'LISTENING...';
-                } else if (data.event === 'transcript') {
-                    addMessage('user', data.text);
-                } else if (data.event === 'processing') {
-                    label.textContent = 'PROCESSING...';
-                    addThinking();
-                } else if (data.event === 'responding') {
-                    overlay.style.display = 'none';
-                    if (data.text) addMessage('chanti', data.text);
-                } else {
-                    overlay.style.display = 'none';
+                    if (y > canvas.height && Math.random() > 0.975) {
+                        drops[i] = 0;
+                    }
+                    drops[i]++;
                 }
             }
-        };
 
-        function getTime() {
-            return new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+            resize();
+            window.addEventListener('resize', resize);
+            setInterval(draw, 48);
+        })();
+
+        // ── Clock ────────────────────────────────────
+        const clockEl = document.getElementById('clock');
+        function tick() {
+            clockEl.textContent = new Date().toLocaleTimeString('de-DE',
+                {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        }
+        tick();
+        setInterval(tick, 1000);
+
+        // ── WebSocket ────────────────────────────────
+        const chat      = document.getElementById('chat');
+        const input     = document.getElementById('input');
+        const send      = document.getElementById('send');
+        const statusbar = document.getElementById('statusbar');
+        const statusDot = document.getElementById('status-dot');
+        const msgCount  = document.getElementById('msg-count');
+        let count = 0, ws, reconnectTimer;
+
+        function connectWS() {
+            ws = new WebSocket(`ws://${location.host}/ws`);
+            ws.onopen = () => {
+                statusbar.textContent      = 'CONNECTED //';
+                statusDot.style.background = '#00ff41';
+                statusDot.style.boxShadow  = '0 0 8px #00ff41, 0 0 20px #00ff41';
+                send.disabled = false;
+                if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+            };
+            ws.onclose = () => {
+                statusbar.textContent      = 'DISCONNECTED – RECONNECTING...';
+                statusDot.style.background = '#ff3333';
+                statusDot.style.boxShadow  = '0 0 8px #ff3333';
+                send.disabled = true;
+                if (!reconnectTimer) reconnectTimer = setTimeout(connectWS, 3000);
+            };
+            ws.onerror = () => {};
+            setupMsgHandler();
         }
 
-        function addMessage(role, text) {
-            const div = document.createElement('div');
+        function setupMsgHandler() {
+            ws.onmessage = (e) => {
+                const data     = JSON.parse(e.data);
+                const thinking = document.getElementById('thinking');
+                if (thinking) thinking.remove();
+
+                if (data.type === 'message') {
+                    addMsg('chanti', data.text);
+                    send.disabled = false;
+                    input.focus();
+                } else if (data.type === 'transcript') {
+                    addMsg('user', data.text);
+                    addThinking();
+                } else if (data.type === 'wakeword') {
+                    const ov  = document.getElementById('ww-overlay');
+                    const lbl = document.getElementById('ww-label');
+                    if (data.event === 'listening')  { ov.style.display = 'flex'; lbl.textContent = 'LISTENING...'; }
+                    else if (data.event === 'transcript') { addMsg('user', data.text); }
+                    else if (data.event === 'processing') { lbl.textContent = 'PROCESSING...'; addThinking(); }
+                    else if (data.event === 'responding') {
+                        ov.style.display = 'none';
+                        if (data.text) addMsg('chanti', data.text);
+                    } else { ov.style.display = 'none'; }
+                }
+            };
+        }
+
+        connectWS();
+
+        function sanitize(h) { return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(h) : h; }
+
+        function addMsg(role, text) {
+            const div  = document.createElement('div');
             div.className = `msg ${role}`;
-            const time = getTime();
+            const time = new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
             if (role === 'chanti') {
                 const rendered = typeof marked !== 'undefined' ? marked.parse(text) : text;
-                div.innerHTML = `<div class="msg-header"><span class="name">// CHANTI</span><span class="msg-time">${time}</span></div>${rendered}`;
+                div.innerHTML = `<div class="msg-header"><span class="name">// CHANTI</span><span class="msg-time">${time}</span></div>${sanitize(rendered)}`;
             } else {
-                div.innerHTML = `<div class="msg-header"><span class="name">// YOU</span><span class="msg-time">${time}</span></div><span>${text}</span>`;
+                const esc = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                div.innerHTML = `<div class="msg-header"><span class="name">// YOU</span><span class="msg-time">${time}</span></div><span>${esc}</span>`;
             }
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
-            count++;
-            msgCount.textContent = count;
+            msgCount.textContent = ++count;
         }
 
         function addThinking() {
             const div = document.createElement('div');
-            div.className = 'thinking';
-            div.id = 'thinking';
+            div.className = 'thinking'; div.id = 'thinking';
             div.textContent = '// PROCESSING';
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
         }
 
-        function sendMessage() {
+        function sendMsg() {
             const text = input.value.trim();
-            if (!text) return;
-            addMessage('user', text);
+            if (!text || send.disabled) return;
+            addMsg('user', text);
             addThinking();
-            ws.send(JSON.stringify({type: 'text', text}));
-            input.value = '';
+            ws.send(JSON.stringify({type:'text', text}));
+            input.value   = '';
             send.disabled = true;
         }
 
-        send.onclick = sendMessage;
-        input.onkeydown = (e) => { if (e.key === 'Enter') sendMessage(); };
+        send.onclick = sendMsg;
+        input.onkeydown = (e) => { if (e.key === 'Enter') sendMsg(); };
+
+        // ── Legend ───────────────────────────────────
+        function toggleLegend() {
+            const p = document.getElementById('legend-panel');
+            const b = document.getElementById('legend-toggle');
+            p.classList.toggle('open');
+            b.textContent = p.classList.contains('open') ? '✕ CLOSE' : '⌘ BEFEHLE';
+        }
+        document.addEventListener('click', (e) => {
+            const p = document.getElementById('legend-panel');
+            const t = document.getElementById('legend-toggle');
+            if (p.classList.contains('open') && !p.contains(e.target) && e.target !== t) {
+                p.classList.remove('open');
+                t.textContent = '⌘ BEFEHLE';
+            }
+        });
     </script>
 </body>
 </html>

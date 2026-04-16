@@ -2,7 +2,10 @@
 import importlib.util
 import importlib
 import sys
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("chanti")
 
 SKILLS_DIR = Path(__file__).parent / "skills"
 
@@ -29,7 +32,7 @@ def _load_skill(skill_file: Path) -> tuple[str, dict, callable] | None:
             name = module.TOOL_DEFINITION["function"]["name"]
             return name, module.TOOL_DEFINITION, module.execute
     except Exception as e:
-        print(f"[Chanti] Skill {skill_file.name} Fehler: {e}")
+        logger.error(f"Skill {skill_file.name} Fehler: {e}")
     return None
 
 
@@ -41,6 +44,10 @@ def load_skills() -> tuple[list[dict], dict]:
     _executors = {}
     _mtimes = {}
 
+    if not SKILLS_DIR.exists():
+        logger.warning(f"Skills-Verzeichnis nicht gefunden: {SKILLS_DIR}")
+        return _tools, _executors
+
     for skill_file in sorted(SKILLS_DIR.glob("*.py")):
         if skill_file.name.startswith("_"):
             continue
@@ -50,9 +57,9 @@ def load_skills() -> tuple[list[dict], dict]:
             _tools.append(tool_def)
             _executors[name] = execute_fn
             _mtimes[str(skill_file)] = skill_file.stat().st_mtime
-            print(f"[Chanti] Skill geladen: {name}")
+            logger.info(f"Skill geladen: {name}")
 
-    print(f"[Chanti] {len(_tools)} Skills geladen: {list(_executors.keys())}")
+    logger.info(f"{len(_tools)} Skills geladen: {list(_executors.keys())}")
     return _tools, _executors
 
 
@@ -61,6 +68,9 @@ def reload_if_changed() -> bool:
     Prüft ob neue oder geänderte Skills vorhanden sind.
     Lädt sie nach ohne Neustart. Gibt True zurück wenn etwas geändert wurde.
     """
+    if not SKILLS_DIR.exists():
+        return False
+
     changed = False
 
     for skill_file in sorted(SKILLS_DIR.glob("*.py")):
@@ -79,7 +89,7 @@ def reload_if_changed() -> bool:
                 _tools.append(tool_def)
                 _executors[name] = execute_fn
                 _mtimes[path_str] = current_mtime
-                print(f"[Chanti] Skill neu geladen: {name}")
+                logger.info(f"Skill neu geladen: {name}")
                 changed = True
 
     return changed

@@ -2,6 +2,17 @@
 
 echo "🟣 Starte Chanti..."
 
+# Cleanup-Handler ZUERST registrieren (Fix: trap muss vor Background-Jobs stehen)
+cleanup() {
+    echo "🛑 Beende alle Dienste..."
+    [ -n "$XTTS_PID" ]     && kill $XTTS_PID 2>/dev/null
+    [ -n "$N8N_PID" ]      && kill $N8N_PID 2>/dev/null
+    [ -n "$NGROK_PID" ]    && kill $NGROK_PID 2>/dev/null
+    [ -n "$WAKEWORD_PID" ] && kill $WAKEWORD_PID 2>/dev/null
+    echo "✅ Cleanup abgeschlossen"
+}
+trap cleanup EXIT INT TERM
+
 # Home Assistant starten
 echo "🏠 Starte Home Assistant..."
 docker start homeassistant 2>/dev/null || echo "Home Assistant läuft bereits"
@@ -49,11 +60,8 @@ PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/python \
 WAKEWORD_PID=$!
 echo "✅ Wake Word bereit"
 
-# Chanti starten
+# Chanti starten (blockierend – trap fängt SIGINT/SIGTERM)
 echo "🌐 Starte Chanti Web-UI auf http://localhost:8000"
 cd ~/chanti
 PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/uvicorn \
-    server:app --host 0.0.0.0 --port 8000
-
-# Cleanup beim Beenden
-trap "kill $XTTS_PID $N8N_PID $NGROK_PID $WAKEWORD_PID 2>/dev/null" EXIT
+    server:app --host 0.0.0.0 --port 8000 --log-level info

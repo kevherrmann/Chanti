@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from llm import chat as llm_chat
 from tts import speak
@@ -8,30 +8,51 @@ from skills_loader import load_skills, reload_if_changed, get_tools, get_executo
 from text_utils import clean_for_tts
 import asyncio
 import base64
+import subprocess
 import os
 import json
+import logging
 import traceback
 
+logger = logging.getLogger("chanti")
+
+# --- Optionaler API-Key Schutz für HTTP-Endpoints ---
+_API_KEY = os.environ.get("CHANTI_API_KEY", "")
+
+
+def _check_auth(request: Request):
+    """Prüft API-Key wenn CHANTI_API_KEY gesetzt ist."""
+    if not _API_KEY:
+        return
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if token != _API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# --- Whisper Lazy-Loading ---
 _whisper = None
+
 
 def get_whisper():
     global _whisper
     if _whisper is None:
-        print("[Chanti] Lade Whisper...")
+        logger.info("Lade Whisper...")
         from faster_whisper import WhisperModel as _WhisperModel
         _whisper = _WhisperModel("base", device="cpu", compute_type="int8")
-        print("[Chanti] Whisper bereit")
+        logger.info("Whisper bereit")
     return _whisper
+
 
 def _load_chat_html():
     from pathlib import Path
     return (Path(__file__).parent / "chat.html").read_text(encoding="utf-8")
 
+
 app = FastAPI()
-active_connections = []
+active_connections: list[WebSocket] = []
 
 soul = load_system_prompt()
-print(f"[Chanti] System-Prompt geladen ({len(soul)} Zeichen)")
+logger.info(f"System-Prompt geladen ({len(soul)} Zeichen)")
 
 load_skills()
 cleanup_old_logs(keep_days=30)
@@ -41,123 +62,12 @@ async def broadcast_notify(message: str):
     for ws in active_connections:
         try:
             await ws.send_json({"type": "message", "text": message})
-        except:
+        except Exception:
             pass
-    await asyncio.get_event_loop().run_in_executor(
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
         None, lambda: speak(clean_for_tts(message))
     )
-
-
-HTML = """
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chanti</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0f0f1a; color: #e0e0ff; font-family: 'Segoe UI', sans-serif; height: 100vh; display: flex; flex-direction: column; align-items: center; }
-        header { width: 100%; padding: 20px; text-align: center; background: linear-gradient(135deg, #1a1a2e, #16213e); border-bottom: 1px solid #2a2a4a; }
-        header h1 { font-size: 1.8rem; color: #a78bfa; letter-spacing: 3px; }
-        header p { font-size: 0.8rem; color: #6b7280; margin-top: 4px; }
-        #chat { flex: 1; width: 100%; max-width: 800px; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
-        .msg { max-width: 75%; padding: 12px 16px; border-radius: 18px; line-height: 1.5; font-size: 0.95rem; }
-        .user { align-self: flex-end; background: #4c1d95; color: #ede9fe; border-bottom-right-radius: 4px; }
-        .chanti { align-self: flex-start; background: #1e1b4b; color: #c4b5fd; border-bottom-left-radius: 4px; border: 1px solid #2e2b6b; }
-        .chanti .name { font-size: 0.7rem; color: #7c3aed; margin-bottom: 4px; font-weight: bold; letter-spacing: 1px; }
-        .thinking { align-self: flex-start; color: #6b7280; font-style: italic; font-size: 0.85rem; padding: 8px 16px; }
-        #inputarea { width: 100%; max-width: 800px; padding: 16px; display: flex; gap: 10px; align-items: center; }
-        #input { flex: 1; background: #1a1a2e; border: 1px solid #2a2a4a; color: #e0e0ff; padding: 12px 16px; border-radius: 12px; font-size: 0.95rem; outline: none; }
-        #input:focus { border-color: #7c3aed; }
-        #send { background: #7c3aed; color: white; border: none; padding: 12px 24px; border-radius: 12px; cursor: pointer; font-size: 0.95rem; }
-        #send:hover { background: #6d28d9; }
-        #send:disabled { background: #374151; cursor: not-allowed; }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(124,58,237,0.7); } 70% { box-shadow: 0 0 0 10px rgba(124,58,237,0); } 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); } }
-        #status { font-size: 0.75rem; color: #6b7280; padding: 4px 16px 8px; }
-        .chanti ul, .chanti ol { padding-left: 20px; margin: 4px 0; }
-        .chanti p { margin: 4px 0; }
-        .chanti code { background: #2d2b55; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-</head>
-<body>
-    <header><h1>✦ CHANTI ✦</h1><p>Deine persönliche KI-Assistentin</p></header>
-    <!-- Wake Word Overlay -->
-    <div id="ww-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(124,58,237,0.15); backdrop-filter:blur(4px); z-index:100; flex-direction:column; align-items:center; justify-content:center;">
-        <div id="ww-mic" style="font-size:4rem; animation:micpulse 1s infinite;">🎤</div>
-        <div id="ww-label" style="color:#a78bfa; font-size:1.2rem; margin-top:16px; letter-spacing:2px;">HÖRE ZU...</div>
-    </div>
-    <style>
-        @keyframes micpulse {
-            0%   { transform: scale(1);    opacity: 1; }
-            50%  { transform: scale(1.2);  opacity: 0.7; }
-            100% { transform: scale(1);    opacity: 1; }
-        }
-    </style>
-    <div id="chat"></div>
-    <div id="status">Verbinde...</div>
-    <div id="inputarea">
-        <input id="input" type="text" placeholder="Schreib etwas..." autocomplete="off"/>
-        <button id="send" disabled>Senden</button>
-    </div>
-    <script>
-        const chat = document.getElementById('chat'), input = document.getElementById('input');
-        const send = document.getElementById('send'), status = document.getElementById('status');
-        const ws = new WebSocket(`ws://${location.host}/ws`);
-        ws.onopen = () => { status.textContent = 'Verbunden ✓'; send.disabled = false; };
-        ws.onclose = () => { status.textContent = 'Verbindung getrennt'; send.disabled = true; };
-        ws.onmessage = (e) => {
-            const data = JSON.parse(e.data);
-            const thinking = document.getElementById('thinking');
-            if (thinking) thinking.remove();
-            if (data.type === 'message') { addMessage('chanti', data.text); send.disabled = false; input.focus(); }
-            else if (data.type === 'transcript') { addMessage('user', data.text); addThinking(); }
-            else if (data.type === 'wakeword') {
-                const overlay = document.getElementById('ww-overlay');
-                const label = document.getElementById('ww-label');
-                if (data.event === 'listening') {
-                    overlay.style.display = 'flex';
-                    label.textContent = 'HÖRE ZU...';
-                } else if (data.event === 'processing') {
-                    label.textContent = 'VERARBEITE...';
-                } else if (data.event === 'responding') {
-                    overlay.style.display = 'none';
-                    if (data.text) addMessage('chanti', data.text);
-                } else {
-                    overlay.style.display = 'none';
-                }
-            }
-        };
-        function addMessage(role, text) {
-            const div = document.createElement('div');
-            div.className = `msg ${role}`;
-            if (role === 'chanti') {
-                const rendered = typeof marked !== 'undefined' ? marked.parse(text) : text;
-                div.innerHTML = `<div class="name">CHANTI</div>${rendered}`;
-            } else {
-                div.textContent = text;
-            }
-            chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
-        }
-        function addThinking() {
-            const div = document.createElement('div');
-            div.className = 'thinking'; div.id = 'thinking'; div.textContent = 'Chanti denkt nach...';
-            chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
-        }
-        function sendMessage() {
-            const text = input.value.trim();
-            if (!text) return;
-            addMessage('user', text); addThinking();
-            ws.send(JSON.stringify({type: 'text', text}));
-            input.value = ''; send.disabled = true;
-        }
-        send.onclick = sendMessage;
-        input.onkeydown = (e) => { if (e.key === 'Enter') sendMessage(); };
-    </script>
-</body>
-</html>
-"""
 
 
 @app.get("/")
@@ -167,6 +77,7 @@ async def index():
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
+    _check_auth(request)
     data = await request.json()
     text = data.get("message", "")
     if not text:
@@ -175,7 +86,8 @@ async def chat_endpoint(request: Request):
     history = [{"role": "system", "content": soul}]
     history.extend(load_recent_context(n=5))
     history.append({"role": "user", "content": text})
-    response = await asyncio.get_event_loop().run_in_executor(
+    loop = asyncio.get_running_loop()
+    response = await loop.run_in_executor(
         None, lambda: llm_chat(history, tools=get_tools(), executors=get_executors())
     )
     clean_response = parse_and_execute_commands(response)
@@ -185,6 +97,7 @@ async def chat_endpoint(request: Request):
 
 @app.post("/notify")
 async def notify(request: Request):
+    _check_auth(request)
     data = await request.json()
     message = data.get("message", "")
     if message:
@@ -199,7 +112,7 @@ async def wakeword_event(request: Request):
     for ws in active_connections:
         try:
             await ws.send_json({"type": "wakeword", "event": event, **data})
-        except:
+        except Exception:
             pass
     return {"ok": True}
 
@@ -211,13 +124,14 @@ async def websocket_endpoint(websocket: WebSocket):
 
     history = [{"role": "system", "content": soul}]
     history.extend(load_recent_context(n=3))
-    print(f"[Chanti] Session gestartet, {len(history)-1} Kontext-Messages geladen")
+    logger.info(f"Session gestartet, {len(history)-1} Kontext-Messages geladen")
 
     async def process_text(text: str, use_tts: bool = False):
         reload_if_changed()
         history.append({"role": "user", "content": text})
 
-        response_raw = await asyncio.get_event_loop().run_in_executor(
+        loop = asyncio.get_running_loop()
+        response_raw = await loop.run_in_executor(
             None, lambda: llm_chat(history, tools=get_tools(), executors=get_executors())
         )
 
@@ -230,7 +144,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         await websocket.send_json({"type": "message", "text": response})
         if use_tts:
-            await asyncio.get_event_loop().run_in_executor(
+            await loop.run_in_executor(
                 None, lambda: speak(clean_for_tts(response))
             )
 
@@ -240,20 +154,19 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 data = json.loads(raw)
             except Exception as e:
-                print(f"[Chanti] JSON Fehler: {e}")
+                logger.warning(f"JSON Fehler: {e}")
                 continue
 
-            print(f"[Chanti] Empfangen: type={data.get('type')}")
+            logger.debug(f"Empfangen: type={data.get('type')}")
 
             if data.get('type') == 'text':
                 try:
                     await process_text(data['text'], use_tts=False)
                 except Exception as e:
-                    print(f"[Chanti] FEHLER in process_text:")
-                    traceback.print_exc()
+                    logger.error(f"FEHLER in process_text: {e}", exc_info=True)
                     try:
                         await websocket.send_json({"type": "message", "text": f"Interner Fehler: {e}"})
-                    except:
+                    except Exception:
                         pass
 
             elif data.get('type') == 'audio':
@@ -265,7 +178,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         tmp_path = f.name
                     wav_path = tmp_path.replace('.webm', '.wav')
                     try:
-                        os.system(f'ffmpeg -i {tmp_path} -ar 16000 -ac 1 {wav_path} -y -loglevel quiet')
+                        # Fix #3: subprocess.run statt os.system
+                        subprocess.run(
+                            ['ffmpeg', '-i', tmp_path, '-ar', '16000', '-ac', '1',
+                             wav_path, '-y', '-loglevel', 'quiet'],
+                            check=True, timeout=30
+                        )
                         segments, _ = get_whisper().transcribe(wav_path, language="de", beam_size=1)
                         text = " ".join(s.text for s in segments).strip()
                     finally:
@@ -278,14 +196,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     else:
                         await websocket.send_json({"type": "message", "text": "Ich habe dich nicht verstanden, Kevin."})
                 except Exception as e:
-                    print(f"[Chanti] FEHLER bei Audio:")
-                    traceback.print_exc()
+                    logger.error(f"FEHLER bei Audio: {e}", exc_info=True)
 
     except WebSocketDisconnect:
-        if websocket in active_connections:
-            active_connections.remove(websocket)
+        pass
     except Exception as e:
-        print(f"[Chanti] KRITISCHER FEHLER:")
-        traceback.print_exc()
+        logger.error(f"KRITISCHER FEHLER: {e}", exc_info=True)
+    finally:
         if websocket in active_connections:
             active_connections.remove(websocket)

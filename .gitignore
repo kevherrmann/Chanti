@@ -1,26 +1,33 @@
-# API Keys und Secrets
+# ── Secrets ──────────────────────────────────────
+.env
 config.py
 
-# Persönliche Daten
-memory.md
+# ── Persönliche Daten / Laufzeit-Dateien ─────────
+leads/
+research/
+emails/
+memory/
+calendar.json
 
-# Binaries und Archive
-ngrok-v3-stable-linux-amd64.tgz
-blender_mcp_addon.zip
-
-# Python Cache
+# ── Python ───────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+.venv/
+venv/
+*.egg-info/
 
-# Swap Dateien
+# ── Logs ─────────────────────────────────────────
+*.log
+logs/
+
+# ── OS / Editor ──────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 *.swp
 *.swo
 
-# Logs
-/tmp/
-
-# Voices (persönliche Aufnahmen)
+NICHT PUSHEN! HOME ASSISTANT TOKEN.txt
 voices/
-NICHT PUSHEN*
-*.t...ate-swp

@@ -1,5 +1,8 @@
 """Skill: Eigene Dateien lesen und schreiben (nur ~/chanti/)"""
 from pathlib import Path
+import logging
+
+logger = logging.getLogger("chanti")
 
 BASE = Path.home() / "chanti"
 
@@ -30,11 +33,12 @@ TOOL_DEFINITION = {
     }
 }
 
+
 def _resolve_path(path: str) -> Path:
-    """Findet die Datei case-insensitiv."""
+    """Findet die Datei case-insensitiv. Sicherer Path-Traversal-Schutz."""
     target = (BASE / path).resolve()
-    # Sicherheitscheck
-    if not str(target).startswith(str(BASE.resolve())):
+    # Sicherheitscheck – is_relative_to ist sicherer als startswith
+    if not target.is_relative_to(BASE.resolve()):
         raise PermissionError("Zugriff verweigert: Nur Dateien innerhalb ~/chanti/ erlaubt.")
     # Wenn Datei direkt gefunden
     if target.exists():
@@ -75,6 +79,7 @@ def execute(action: str, path: str = None, content: str = None) -> str:
             backup = target.with_suffix(target.suffix + ".bak")
             backup.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
         target.write_text(content, encoding="utf-8")
+        logger.info(f"Datei gespeichert: {target.name} ({len(content)} Zeichen)")
         return f"Datei gespeichert: {target.name} ({len(content)} Zeichen)"
 
     return f"Unbekannte Aktion: {action}"

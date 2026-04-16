@@ -28,10 +28,24 @@ Chanti ist ein persönlicher KI-Assistent mit Web-UI, Sprachausgabe und Smart-Ho
 ```bash
 git clone https://github.com/kevherrmann/Chanti.git
 cd Chanti
-cp config.example.py config.py
-# config.py mit deinen API Keys befüllen
+cp .env.example .env
+# .env mit deinen API Keys befüllen
 pip install -r requirements.txt
+playwright install chromium
 ```
+
+### Konfiguration
+
+Alle Secrets und Pfade werden über Umgebungsvariablen konfiguriert.
+Entweder `.env` Datei nutzen oder Variablen direkt setzen:
+
+```bash
+export GROQ_API_KEY=gsk_dein_key
+export HA_TOKEN=dein_ha_token
+export CHANTI_API_KEY=optionaler_auth_key
+```
+
+Alternativ: `config.py` direkt editieren (niemals committen!).
 
 ### Starten
 ```bash
@@ -45,6 +59,11 @@ TTS  → XTTS v2 (lokal, GPU)
 Gedächtnis → lokal (memory.md)
 Automatisierungen → n8n
 
+## Sicherheit
+- `/chat` und `/notify` Endpoints können mit `CHANTI_API_KEY` geschützt werden
+- Chat-UI nutzt DOMPurify gegen XSS
+- File-Edit Skill ist auf `~/chanti/` beschränkt
+
 ## V2 Features (in Entwicklung)
 - Blender MCP Steuerung
 - Gmail Kategorisierung
@@ -52,4 +71,4 @@ Automatisierungen → n8n
 - Home Assistant Integration
 
 ## Hinweis
-`config.py` niemals committen – enthält API Keys!
+`.env` und `config.py` niemals committen – enthalten API Keys!

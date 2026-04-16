@@ -2,11 +2,14 @@ fastapi
 uvicorn
 websockets
 python-multipart
+python-dotenv
 requests
 faster-whisper
 sounddevice
 soundfile
+numpy
 resampy
 duckduckgo-search
-openwakeword
+vosk
 scipy
+playwright

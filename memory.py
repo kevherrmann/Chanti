@@ -1,6 +1,11 @@
+"""Chantis Gedächtnis: System-Prompt, Kontext, Fakten, Tages-Logs."""
 from pathlib import Path
 from datetime import date
 import re
+import logging
+import tempfile
+
+logger = logging.getLogger("chanti")
 
 BASE = Path.home() / "chanti"
 
@@ -16,15 +21,29 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
 
+def _safe_write(path: Path, content: str):
+    """Atomisches Schreiben: tmp-Datei → rename. Verhindert Datenverlust bei Crash."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        Path(tmp_path).replace(path)
+    except Exception:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+
+
 # ── System-Prompt ─────────────────────────────────────────────────────────────
 
 def load_system_prompt() -> str:
-    from datetime import datetime
-    today = datetime.now().strftime("%A, %d. %B %Y")
     """
     Kompakter System-Prompt: SOUL + USER-Fakten + MEMORY-Ereignisse.
     IDENTITY und TOOLS werden weggelassen um Token zu sparen.
     """
+    from datetime import datetime
+    today = datetime.now().strftime("%A, %d. %B %Y")
+
     soul    = f"Heute ist {today}.\n\n" + _read(SOUL_FILE)
     user    = _read(USER_FILE)
     memory  = _read(MEMORY_FILE)
@@ -85,7 +104,7 @@ def _read_user_facts() -> list[str]:
 
 def _write_user_facts(facts: list[str]):
     header = "# USER – Was Chanti über Kevin weiß\n\n"
-    USER_FILE.write_text(header + "\n".join(facts) + "\n", encoding="utf-8")
+    _safe_write(USER_FILE, header + "\n".join(facts) + "\n")
 
 
 def _is_duplicate(new: str, existing: list[str]) -> bool:
@@ -119,7 +138,7 @@ def add_user_fact(fact: str):
     # Blacklist prüfen
     fact_lower = fact.lower()
     if any(blocked in fact_lower for blocked in _FACT_BLACKLIST):
-        print(f"[Memory] Fakt gefiltert: {fact[:50]}")
+        logger.debug(f"Fakt gefiltert: {fact[:50]}")
         return
     line = f"- {fact}"
     facts = _read_user_facts()
@@ -154,7 +173,7 @@ def add_memory_event(event: str):
     # Duplikat-Check
     if event.strip().lower() in current.lower():
         return
-    MEMORY_FILE.write_text(current + "\n" + entry + "\n", encoding="utf-8")
+    _safe_write(MEMORY_FILE, current + "\n" + entry + "\n")
 
 
 # ── Tages-Log ────────────────────────────────────────────────────────────────
@@ -208,4 +227,4 @@ def cleanup_old_logs(keep_days: int = 30):
         except ValueError:
             pass
     if deleted:
-        print(f"[Chanti] {deleted} alte Log-Dateien gelöscht")
+        logger.info(f"{deleted} alte Log-Dateien gelöscht")

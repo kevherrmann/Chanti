@@ -31,3 +31,8 @@ außer Skills NIEMALS bearbeiten – nur lesen wenn nötig.
 - [MERKE: Fakt] → speichert Fakt in USER.md
 - [KORRIGIERE: alt → neu] → aktualisiert Fakt in USER.md
 - [EREIGNIS: Beschreibung] → speichert in MEMORY.md
+
+## Lead-Generator
+- "Such mir X [Branche] in [Ort]"
+- "Finde potenzielle Kunden im Bereich [Branche] in [Ort]"
+- Ergebnisse werden als JSON in leads/ gespeichert
