@@ -1,10 +1,16 @@
 """Skill: Eigene Dateien lesen und schreiben (nur ~/chanti/)"""
 from pathlib import Path
 import logging
+import os
 
 logger = logging.getLogger("chanti")
 
 BASE = Path.home() / "chanti"
+# Harte Obergrenze für einzelne Write-Calls: 2 MB.
+# Schützt vor Disk-Full-DoS durch Halluzinationen oder Prompt-Injection.
+MAX_WRITE_BYTES = 2 * 1024 * 1024
+# Verzeichnisse die bei `list` ausgeschlossen werden (venv-Müll, Caches).
+LIST_EXCLUDE_DIRS = {".venv", "venv", "__pycache__", "node_modules", ".git", "data"}
 
 TOOL_DEFINITION = {
     "type": "function",
@@ -25,7 +31,7 @@ TOOL_DEFINITION = {
                 },
                 "content": {
                     "type": "string",
-                    "description": "Neuer Inhalt beim Schreiben (nur bei action=write)"
+                    "description": "Neuer Inhalt beim Schreiben (nur bei action=write). Maximal 2 MB."
                 }
             },
             "required": ["action"]
@@ -34,52 +40,147 @@ TOOL_DEFINITION = {
 }
 
 
+def _inside_base(p: Path) -> bool:
+    """Prüft ob ein Pfad (nach resolve) innerhalb BASE liegt."""
+    try:
+        p.resolve(strict=False).relative_to(BASE.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def _resolve_path(path: str) -> Path:
-    """Findet die Datei case-insensitiv. Sicherer Path-Traversal-Schutz."""
-    target = (BASE / path).resolve()
-    # Sicherheitscheck – is_relative_to ist sicherer als startswith
-    if not target.is_relative_to(BASE.resolve()):
+    """Findet die Datei case-insensitiv mit striktem Path-Traversal- und Symlink-Schutz."""
+    if not path or not path.strip():
+        raise ValueError("Leerer Pfad.")
+
+    # Absolute Pfade und '..' direkt ablehnen — nur relativ zu BASE.
+    p = Path(path)
+    if p.is_absolute():
+        raise PermissionError("Zugriff verweigert: Absolute Pfade nicht erlaubt.")
+    if ".." in p.parts:
+        raise PermissionError("Zugriff verweigert: '..' nicht erlaubt.")
+
+    target = (BASE / p).resolve(strict=False)
+
+    # 1) Pfad muss innerhalb BASE liegen (nach resolve, inkl. Symlink-Auflösung).
+    if not _inside_base(target):
         raise PermissionError("Zugriff verweigert: Nur Dateien innerhalb ~/chanti/ erlaubt.")
+
+    # 2) Weder das Ziel selbst noch ein Zwischenverzeichnis darf ein Symlink sein.
+    if target.is_symlink():
+        raise PermissionError("Zugriff verweigert: Symlinks nicht erlaubt.")
+    base_resolved = BASE.resolve()
+    parent = target.parent
+    while True:
+        if parent == base_resolved or parent == parent.parent:
+            break
+        if parent.is_symlink():
+            raise PermissionError("Zugriff verweigert: Symlinks im Pfad nicht erlaubt.")
+        parent = parent.parent
+
     # Wenn Datei direkt gefunden
     if target.exists():
         return target
-    # Case-insensitive Suche
-    name_lower = Path(path).name.lower()
+
+    # Case-insensitive Suche im Ziel-Ordner
+    name_lower = p.name.lower()
     search_dir = target.parent
     if search_dir.exists():
         for f in search_dir.iterdir():
+            if f.is_symlink():
+                continue
             if f.name.lower() == name_lower:
                 return f
     return target  # Nicht gefunden – original zurückgeben (für write)
 
 
+def _list_files() -> str:
+    out = []
+    base_resolved = BASE.resolve()
+    for root, dirs, files in os.walk(BASE, followlinks=False):
+        # Exclude-Dirs in-place filtern, damit os.walk nicht absteigt
+        dirs[:] = [d for d in dirs if d not in LIST_EXCLUDE_DIRS and not d.startswith(".")]
+        root_path = Path(root)
+        try:
+            root_path.resolve().relative_to(base_resolved)
+        except ValueError:
+            continue
+        for f in files:
+            if not f.endswith((".py", ".md", ".sh")):
+                continue
+            if f.endswith(".bak"):
+                continue
+            full = root_path / f
+            # Symlinks in der Liste ausblenden — sie sind eh nicht lesbar.
+            if full.is_symlink():
+                continue
+            rel = full.relative_to(BASE)
+            out.append(str(rel))
+    out.sort()
+    return "\n".join(out) if out else "Keine Dateien gefunden."
+
+
 def execute(action: str, path: str = None, content: str = None) -> str:
     if action == "list":
-        files = sorted(BASE.rglob("*.py")) + sorted(BASE.rglob("*.md")) + sorted(BASE.rglob("*.sh"))
-        return "\n".join(str(f.relative_to(BASE)) for f in files if ".bak" not in str(f))
+        return _list_files()
 
     if not path:
         return "Fehler: Kein Pfad angegeben."
 
     try:
         target = _resolve_path(path)
-    except PermissionError as e:
+    except (PermissionError, ValueError) as e:
         return str(e)
 
     if action == "read":
         if not target.exists():
             return f"Datei nicht gefunden: {path}"
-        return target.read_text(encoding="utf-8")
+        if not target.is_file():
+            return f"Kein regulärer Datei-Pfad: {path}"
+        try:
+            text = target.read_text(encoding="utf-8")
+            logger.info(f"Datei gelesen: {target.relative_to(BASE)} ({len(text)} Zeichen)")
+            return text
+        except UnicodeDecodeError:
+            return f"Datei {path} ist keine UTF-8 Text-Datei."
+        except OSError as e:
+            return f"Fehler beim Lesen: {e}"
 
     if action == "write":
         if content is None:
             return "Fehler: Kein Inhalt zum Schreiben angegeben."
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            backup = target.with_suffix(target.suffix + ".bak")
-            backup.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
-        target.write_text(content, encoding="utf-8")
-        logger.info(f"Datei gespeichert: {target.name} ({len(content)} Zeichen)")
+
+        content_bytes = content.encode("utf-8")
+        if len(content_bytes) > MAX_WRITE_BYTES:
+            return (f"Fehler: Inhalt zu groß "
+                    f"({len(content_bytes)} Bytes, Limit {MAX_WRITE_BYTES}).")
+
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return f"Fehler beim Anlegen des Ordners: {e}"
+
+        if not _inside_base(target):
+            return "Zugriff verweigert: Ziel liegt außerhalb ~/chanti/."
+
+        # Bestehende Datei sichern.
+        if target.exists() and target.is_file():
+            try:
+                backup = target.with_suffix(target.suffix + ".bak")
+                backup.write_bytes(target.read_bytes())
+            except OSError as e:
+                logger.warning(f"Backup fehlgeschlagen ({target.name}): {e}")
+
+        try:
+            # Atomic write: erst in Temp, dann umbenennen.
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            tmp.write_bytes(content_bytes)
+            tmp.replace(target)
+        except OSError as e:
+            return f"Fehler beim Schreiben: {e}"
+
+        logger.info(f"Datei gespeichert: {target.relative_to(BASE)} ({len(content_bytes)} Bytes)")
         return f"Datei gespeichert: {target.name} ({len(content)} Zeichen)"
 
     return f"Unbekannte Aktion: {action}"

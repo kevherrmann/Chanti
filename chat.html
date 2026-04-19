@@ -401,8 +401,8 @@
             letter-spacing: 2px;
         }
 
-        /* ── Command Legend ── */
-        #legend-toggle {
+        /* ── Tools-Menü (unten rechts) ── */
+        #tools-toggle {
             position: fixed;
             bottom: 76px;
             right: 20px;
@@ -417,14 +417,82 @@
             cursor: pointer;
             transition: all 0.15s;
         }
-
-        #legend-toggle:hover {
+        #tools-toggle:hover,
+        #tools-toggle.open {
             background: var(--green);
             color: #000;
             border-color: var(--green);
             box-shadow: 0 0 14px var(--green);
         }
 
+        #tools-menu {
+            position: fixed;
+            bottom: 110px;
+            right: 20px;
+            z-index: 50;
+            width: 200px;
+            max-height: 0;
+            overflow: hidden;
+            background: #000a02;
+            border: 1px solid var(--border);
+            transition: max-height 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s;
+            opacity: 0;
+            box-shadow: 0 0 30px rgba(0,255,65,0.08);
+        }
+        #tools-menu.open {
+            max-height: 400px;
+            opacity: 1;
+        }
+        #tools-menu::before {
+            content: ''; position: absolute;
+            top: -1px; left: -1px; width: 12px; height: 12px;
+            border-top: 1px solid var(--green); border-left: 1px solid var(--green);
+        }
+        #tools-menu::after {
+            content: ''; position: absolute;
+            bottom: -1px; right: -1px; width: 12px; height: 12px;
+            border-bottom: 1px solid var(--green); border-right: 1px solid var(--green);
+        }
+        .tools-menu-glow {
+            position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+        }
+        .tools-menu-title {
+            font-size: 0.54rem; letter-spacing: 4px;
+            color: var(--green-dim);
+            padding: 10px 14px 6px 14px;
+            border-bottom: 1px solid rgba(0,255,65,0.08);
+        }
+        .tools-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 0.72rem;
+            letter-spacing: 2px;
+            color: var(--text);
+            border-left: 2px solid transparent;
+            transition: all 0.1s;
+            text-decoration: none;
+        }
+        .tools-menu-item:hover {
+            background: rgba(0,255,65,0.06);
+            color: var(--green);
+            border-left-color: var(--green);
+            text-shadow: 0 0 4px var(--green);
+        }
+        .tools-menu-item .icon {
+            font-size: 0.85rem;
+            opacity: 0.8;
+        }
+        .tools-menu-item .arrow {
+            margin-left: auto;
+            color: var(--green-dim);
+            font-size: 0.6rem;
+        }
+
+        /* Legend-Panel bleibt unverändert */
         #legend-panel {
             position: fixed;
             bottom: 120px;
@@ -500,6 +568,211 @@
         }
 
         .legend-cmd span { color: var(--muted); font-size: 0.72rem; line-height: 1.3; }
+
+        /* ── Kalender Widget ── */
+        /* #cal-toggle entfernt – Zugriff über Tools-Menü */
+
+        #cal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 3, 0, 0.82);
+            backdrop-filter: blur(2px);
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        #cal-overlay.open { display: flex; }
+
+        .cal-panel {
+            background: #000a02;
+            border: 1px solid var(--border);
+            position: relative;
+            width: 560px;
+            max-width: 100%;
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 0 40px rgba(0,255,65,0.1);
+        }
+        .cal-panel::before {
+            content: ''; position: absolute;
+            top: -1px; left: -1px; width: 14px; height: 14px;
+            border-top: 1px solid var(--green); border-left: 1px solid var(--green);
+        }
+        .cal-panel::after {
+            content: ''; position: absolute;
+            bottom: -1px; right: -1px; width: 14px; height: 14px;
+            border-bottom: 1px solid var(--green); border-right: 1px solid var(--green);
+        }
+        .cal-glow {
+            position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, var(--green), transparent);
+        }
+        .cal-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .cal-title {
+            font-size: 0.58rem; letter-spacing: 5px;
+            color: var(--green); text-shadow: 0 0 6px var(--green);
+        }
+        .cal-close {
+            background: transparent;
+            border: 1px solid var(--green-dim);
+            color: var(--green-dim);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .cal-close:hover {
+            background: var(--red);
+            border-color: var(--red);
+            color: #000;
+        }
+
+        .cal-body {
+            padding: 14px 18px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .cal-body::-webkit-scrollbar { width: 2px; }
+        .cal-body::-webkit-scrollbar-thumb { background: var(--green-dim); }
+
+        .cal-section-title {
+            font-size: 0.56rem; letter-spacing: 3px;
+            color: var(--green-dim);
+            margin: 12px 0 8px 0;
+        }
+        .cal-section-title:first-child { margin-top: 0; }
+
+        .cal-form {
+            display: grid;
+            grid-template-columns: 1fr 130px 90px;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .cal-form input[type="text"],
+        .cal-form input[type="date"],
+        .cal-form input[type="time"] {
+            background: rgba(0,255,65,0.04);
+            border: 1px solid var(--green-dim);
+            color: var(--text);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.78rem;
+            padding: 6px 8px;
+            outline: none;
+        }
+        .cal-form input:focus { border-color: var(--green); }
+        .cal-form input[type="date"]::-webkit-calendar-picker-indicator,
+        .cal-form input[type="time"]::-webkit-calendar-picker-indicator {
+            filter: invert(1) hue-rotate(85deg);
+            cursor: pointer;
+        }
+
+        .cal-form-row2 {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 0.72rem;
+            color: var(--text);
+        }
+        .cal-form-row2 label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+        .cal-form-row2 input[type="checkbox"] {
+            accent-color: var(--green);
+        }
+        .cal-add-btn {
+            background: transparent;
+            border: 1px solid var(--green-dim);
+            color: var(--green);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.68rem;
+            letter-spacing: 3px;
+            padding: 6px 14px;
+            cursor: pointer;
+            margin-left: auto;
+            transition: all 0.15s;
+        }
+        .cal-add-btn:hover {
+            background: var(--green);
+            color: #000;
+            box-shadow: 0 0 12px var(--green);
+        }
+        .cal-add-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .cal-list { list-style: none; padding: 0; margin: 0; }
+        .cal-event {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 10px;
+            align-items: center;
+            padding: 8px 10px;
+            border: 1px solid rgba(0,255,65,0.08);
+            margin-bottom: 4px;
+            background: rgba(0,255,65,0.02);
+        }
+        .cal-event.past { opacity: 0.4; }
+        .cal-event-date {
+            font-size: 0.72rem;
+            color: var(--green);
+            min-width: 104px;
+            letter-spacing: 1px;
+        }
+        .cal-event-title {
+            font-size: 0.82rem;
+            color: var(--text);
+        }
+        .cal-event-recurring {
+            font-size: 0.54rem;
+            letter-spacing: 2px;
+            color: var(--green-dim);
+            border: 1px solid var(--green-dim);
+            padding: 1px 5px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .cal-event-del {
+            background: transparent;
+            border: 1px solid rgba(255,51,51,0.3);
+            color: var(--red);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            cursor: pointer;
+            opacity: 0.6;
+            transition: all 0.15s;
+        }
+        .cal-event-del:hover {
+            opacity: 1;
+            background: var(--red);
+            color: #000;
+            box-shadow: 0 0 8px var(--red);
+        }
+        .cal-empty {
+            text-align: center;
+            padding: 24px 0;
+            color: var(--muted);
+            font-size: 0.78rem;
+            letter-spacing: 2px;
+        }
+        .cal-error {
+            color: var(--red);
+            font-size: 0.72rem;
+            margin-top: 6px;
+            min-height: 1em;
+        }
     </style>
 </head>
 <body>
@@ -543,73 +816,128 @@
         <button id="send" disabled>EXEC</button>
     </div>
 
-    <button id="legend-toggle" onclick="toggleLegend()">⌘ BEFEHLE</button>
+    <button id="tools-toggle" onclick="toggleTools(event)">⌘ TOOLS</button>
+    <div id="tools-menu" onclick="event.stopPropagation()">
+        <div class="tools-menu-glow"></div>
+        <div class="tools-menu-title">// TOOLS</div>
+        <a class="tools-menu-item" onclick="toolsOpenCalendar()">
+            <span class="icon">📅</span>
+            <span>KALENDER</span>
+            <span class="arrow">›</span>
+        </a>
+        <a class="tools-menu-item" href="/leads" target="_blank" rel="noopener" onclick="toolsClose()">
+            <span class="icon">🎯</span>
+            <span>LEAD INTEL</span>
+            <span class="arrow">↗</span>
+        </a>
+        <a class="tools-menu-item" onclick="toolsOpenLegend()">
+            <span class="icon">⌘</span>
+            <span>BEFEHLE</span>
+            <span class="arrow">›</span>
+        </a>
+    </div>
+
+    <div id="cal-overlay" onclick="calBackdropClick(event)">
+        <div class="cal-panel" onclick="event.stopPropagation()">
+            <div class="cal-glow"></div>
+            <div class="cal-header">
+                <div class="cal-title">// KALENDER</div>
+                <button class="cal-close" onclick="calClose()">✕</button>
+            </div>
+            <div class="cal-body">
+                <div class="cal-section-title">// NEUER TERMIN</div>
+                <div class="cal-form">
+                    <input type="text" id="cal-title" placeholder="TITEL" maxlength="120"/>
+                    <input type="date" id="cal-date"/>
+                    <input type="time" id="cal-time"/>
+                </div>
+                <div class="cal-form-row2">
+                    <label><input type="checkbox" id="cal-recurring"/> jährlich wiederkehrend</label>
+                    <button class="cal-add-btn" id="cal-add-btn" onclick="calAdd()">+ HINZUFÜGEN</button>
+                </div>
+                <div class="cal-error" id="cal-error"></div>
+
+                <div class="cal-section-title">// ALLE TERMINE</div>
+                <ul class="cal-list" id="cal-list"></ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- legend-toggle entfernt – Zugriff über Tools-Menü -->
     <div id="legend-panel">
         <div class="legend-inner">
             <div class="legend-glow"></div>
             <div class="legend-title">VERFÜGBARE BEFEHLE</div>
 
             <div class="legend-section">
-                <div class="legend-section-title">// LEAD GENERATOR</div>
-                <div class="legend-cmd">
-                    <code>Such mir X [Branche] in [Ort]</code>
-                    <span>Findet Firmen ohne/mit schlechter Website</span>
-                </div>
-                <div class="legend-cmd">
-                    <code>5 Baufirmen in Ibbenbüren</code>
-                    <span>Ergebnis als JSON in leads/ gespeichert</span>
-                </div>
-            </div>
-
-            <div class="legend-section">
-                <div class="legend-section-title">// FIRMENDOSSIER</div>
-                <div class="legend-cmd">
-                    <code>Recherchiere [Firma] in [Ort]</code>
-                    <span>Vollanalyse → JSON + HTML in research/</span>
-                </div>
-                <div class="legend-cmd">
-                    <code>Recherchiere alle Leads</code>
-                    <span>Analysiert alle Firmen aus letzter Suche</span>
-                </div>
-                <div class="legend-cmd">
-                    <code>Zeig mir alle Dossiers</code>
-                    <span>Index-HTML aller Firmen (suchbar + filterbar)</span>
-                </div>
-            </div>
-
-            <div class="legend-section">
-                <div class="legend-section-title">// KALTAKQUISE</div>
-                <div class="legend-cmd">
-                    <code>Schreib eine E-Mail für [Firma]</code>
-                    <span>Personalisierte Mail aus Dossier → emails/</span>
-                </div>
-                <div class="legend-cmd">
-                    <code>Schreib eine lockere E-Mail für [Firma]</code>
-                    <span>Stil: formell / locker / kurz</span>
-                </div>
-            </div>
-
-            <div class="legend-section">
                 <div class="legend-section-title">// SMART HOME</div>
                 <div class="legend-cmd">
                     <code>[Lampe] an/aus/[Farbe]/[%]</code>
-                    <span>z.B. "Ringlampe lila" oder "alle 50%"</span>
+                    <span>z.B. "Ringlampe lila" oder "alle lampen 50%"</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Ringlampe rot bei 70%</code>
+                    <span>Farbe und Helligkeit kombinierbar</span>
                 </div>
             </div>
 
             <div class="legend-section">
-                <div class="legend-section-title">// WEB & SUCHE</div>
+                <div class="legend-section-title">// WEB &amp; SUCHE</div>
                 <div class="legend-cmd">
                     <code>Suche [Begriff]</code>
                     <span>DuckDuckGo Websuche</span>
                 </div>
                 <div class="legend-cmd">
-                    <code>Öffne [URL / Begriff]</code>
-                    <span>Browser öffnen</span>
+                    <code>Öffne [URL]</code>
+                    <span>Browser öffnen (nur http/https)</span>
                 </div>
                 <div class="legend-cmd">
                     <code>Lies [URL]</code>
                     <span>Webseite lesen und zusammenfassen</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// BLENDER</div>
+                <div class="legend-cmd">
+                    <code>Erstelle einen roten Würfel</code>
+                    <span>Primitive: Würfel, Kugel, Zylinder, Kegel, Ebene, Torus, Affe</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Bewege Cube nach 2,0,0</code>
+                    <span>Position, Rotation, Skalierung setzen</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Mach Cube blau</code>
+                    <span>Farbname oder hex (#ff0000)</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Setze ein SUN-Licht bei 0,0,10</code>
+                    <span>Lichtarten: POINT, SUN, SPOT, AREA</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Kamera auf 7,-7,5 Blick 0,0,0</code>
+                    <span>Kamera positionieren</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Leere die Szene</code>
+                    <span>Alle Mesh/Licht/Kamera-Objekte löschen</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Zeig mir die Szene</code>
+                    <span>Liste aller Objekte mit Position</span>
+                </div>
+            </div>
+
+            <div class="legend-section">
+                <div class="legend-section-title">// KALENDER</div>
+                <div class="legend-cmd">
+                    <code>Erinner mich an [Titel] am [Datum]</code>
+                    <span>Reminder kommt per Telegram</span>
+                </div>
+                <div class="legend-cmd">
+                    <code>Zeig meine Termine</code>
+                    <span>Oder das Kalender-Widget im Tools-Menü</span>
                 </div>
             </div>
 
@@ -633,7 +961,7 @@
                 </div>
                 <div class="legend-cmd">
                     <code>Bearbeite [Datei]</code>
-                    <span>SOUL.md, USER.md, TOOLS.md etc.</span>
+                    <span>SOUL.md, USER.md, TOOLS.md, chat.html, skills/*.py</span>
                 </div>
             </div>
         </div>
@@ -790,20 +1118,178 @@
         send.onclick = sendMsg;
         input.onkeydown = (e) => { if (e.key === 'Enter') sendMsg(); };
 
-        // ── Legend ───────────────────────────────────
-        function toggleLegend() {
-            const p = document.getElementById('legend-panel');
-            const b = document.getElementById('legend-toggle');
-            p.classList.toggle('open');
-            b.textContent = p.classList.contains('open') ? '✕ CLOSE' : '⌘ BEFEHLE';
+        // ── Tools-Menü & Legend ──────────────────────
+        function toggleTools(e) {
+            if (e) e.stopPropagation();
+            const m = document.getElementById('tools-menu');
+            const b = document.getElementById('tools-toggle');
+            const isOpen = m.classList.toggle('open');
+            b.classList.toggle('open', isOpen);
         }
+        function toolsClose() {
+            document.getElementById('tools-menu').classList.remove('open');
+            document.getElementById('tools-toggle').classList.remove('open');
+        }
+        function toolsOpenCalendar() {
+            toolsClose();
+            if (typeof calOpen === 'function') calOpen();
+        }
+        function toolsOpenLegend() {
+            toolsClose();
+            document.getElementById('legend-panel').classList.add('open');
+        }
+        // Klick außerhalb schließt sowohl Tools-Menü als auch Legend
         document.addEventListener('click', (e) => {
-            const p = document.getElementById('legend-panel');
-            const t = document.getElementById('legend-toggle');
-            if (p.classList.contains('open') && !p.contains(e.target) && e.target !== t) {
-                p.classList.remove('open');
-                t.textContent = '⌘ BEFEHLE';
+            const tm = document.getElementById('tools-menu');
+            const tb = document.getElementById('tools-toggle');
+            if (tm && tm.classList.contains('open') && !tm.contains(e.target) && e.target !== tb) {
+                toolsClose();
             }
+            const lp = document.getElementById('legend-panel');
+            if (lp && lp.classList.contains('open') && !lp.contains(e.target)) {
+                lp.classList.remove('open');
+            }
+        });
+
+        // ── Kalender ─────────────────────────────────
+        const calOverlay  = document.getElementById('cal-overlay');
+        const calTitle    = document.getElementById('cal-title');
+        const calDateIn   = document.getElementById('cal-date');
+        const calTimeIn   = document.getElementById('cal-time');
+        const calRec      = document.getElementById('cal-recurring');
+        const calAddBtn   = document.getElementById('cal-add-btn');
+        const calList     = document.getElementById('cal-list');
+        const calError    = document.getElementById('cal-error');
+
+        function calOpen() {
+            calOverlay.classList.add('open');
+            calError.textContent = '';
+            calLoad();
+            setTimeout(() => calTitle.focus(), 50);
+        }
+        function calClose() { calOverlay.classList.remove('open'); }
+        function calBackdropClick(e) {
+            if (e.target === calOverlay) calClose();
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && calOverlay.classList.contains('open')) calClose();
+        });
+
+        function calFormatDate(iso) {
+            // iso: "2026-05-15" → "15.05.2026"
+            if (!iso) return '';
+            const [y, m, d] = iso.split('-');
+            return `${d}.${m}.${y}`;
+        }
+
+        function calNextOccurrence(ev) {
+            // Spiegelt calendar_core._next_occurrence im Frontend (nur für Anzeige-Sortierung/past-Flag)
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const [y, m, d] = ev.date.split('-').map(Number);
+            const base = new Date(y, m - 1, d);
+            if (ev.recurring === 'yearly') {
+                let cand = new Date(today.getFullYear(), m - 1, d);
+                if (cand < today) cand = new Date(today.getFullYear() + 1, m - 1, d);
+                return cand;
+            }
+            return base;
+        }
+
+        async function calLoad() {
+            calList.innerHTML = '<li class="cal-empty">// LADE...</li>';
+            try {
+                const r = await fetch('/calendar/events');
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const data = await r.json();
+                calRender(data.events || []);
+            } catch (e) {
+                calList.innerHTML = `<li class="cal-empty">// FEHLER: ${e.message}</li>`;
+            }
+        }
+
+        function calRender(events) {
+            if (!events.length) {
+                calList.innerHTML = '<li class="cal-empty">// KEINE TERMINE</li>';
+                return;
+            }
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            calList.innerHTML = '';
+            for (const ev of events) {
+                const occ = calNextOccurrence(ev);
+                const isPast = !ev.recurring && occ < today;
+                const li = document.createElement('li');
+                li.className = 'cal-event' + (isPast ? ' past' : '');
+
+                const dateStr = calFormatDate(ev.date) + (ev.time ? ` ${ev.time}` : '');
+                const recBadge = ev.recurring === 'yearly'
+                    ? '<span class="cal-event-recurring">JÄHRL.</span>' : '';
+
+                li.innerHTML = `
+                    <span class="cal-event-date">${dateStr}</span>
+                    <span class="cal-event-title">${escapeHtml(ev.title)}${recBadge}</span>
+                    <button class="cal-event-del" data-id="${ev.id}">LÖSCHEN</button>
+                `;
+                li.querySelector('.cal-event-del').onclick = () => calDelete(ev.id, ev.title);
+                calList.appendChild(li);
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, c => ({
+                '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+            }[c]));
+        }
+
+        async function calAdd() {
+            calError.textContent = '';
+            const title = calTitle.value.trim();
+            const date = calDateIn.value;
+            const time = calTimeIn.value || null;
+            const recurring = calRec.checked ? 'yearly' : null;
+
+            if (!title) { calError.textContent = 'Titel fehlt.'; return; }
+            if (!date)  { calError.textContent = 'Datum fehlt.'; return; }
+
+            calAddBtn.disabled = true;
+            try {
+                const r = await fetch('/calendar/events', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({title, date, time, recurring}),
+                });
+                if (!r.ok) {
+                    const err = await r.json().catch(() => ({detail: 'HTTP ' + r.status}));
+                    throw new Error(err.detail || 'Fehler');
+                }
+                calTitle.value = '';
+                calDateIn.value = '';
+                calTimeIn.value = '';
+                calRec.checked = false;
+                await calLoad();
+                calTitle.focus();
+            } catch (e) {
+                calError.textContent = e.message;
+            } finally {
+                calAddBtn.disabled = false;
+            }
+        }
+
+        async function calDelete(id, title) {
+            if (!confirm(`Termin "${title}" wirklich löschen?`)) return;
+            try {
+                const r = await fetch('/calendar/events/' + encodeURIComponent(id), {method: 'DELETE'});
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                await calLoad();
+            } catch (e) {
+                calError.textContent = 'Löschen fehlgeschlagen: ' + e.message;
+            }
+        }
+
+        // Enter im Titel-Feld = speichern
+        calTitle.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') calAdd();
         });
     </script>
 </body>

@@ -9,9 +9,7 @@
 - Kevin interessiert sich für MCP-Server
 - Kevins Vater hat am 15.04 Geburtstag
 - Kevin hat am 14. April 2026 gute Nacht gesagt
-- Code wurde optimiert
-- Unternehmen im Baubereich in Ibbenbüren sind Firma Schürmann, Bauunternehmen Wilkening, Firma Heinrich, Firma Krümpelmann und Firma Holtkamp
-- Berdelmann Holzbau ist ein Unternehmen im Baubereich in Ibbenbüren
-- Berdelmann Holzbau ist ein Unternehmen in Ibbenbüren, das Dienstleistungen im Bereich Holzbau anbietet
-- Rechtsanwalt Dieter Niermann ist in Lengerich ansässig
-- Kevin möchte, dass ich einen Kalender-Skill entwickle
+- Kevin ist sportlich, aber mit 40 Jahren wird es weniger. Er fährt gerne Fahrrad und geht wandern. Er hat Multispektralen spinalkanalstenose und kann nicht viel laufen. Sein Ziel ist es, mich zu seiner ultimativen Assistentin zu machen. Sein typischer Tag besteht aus Programmieren, Streamen und Arbeiten an mir.
+- Kevin kann Fehler machen und korrigiert sie direkt
+- Kevin möchte an bestimmte Ereignisse erinnert werden
+- Kevin will Chanti verbessern

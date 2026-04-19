@@ -2,6 +2,7 @@
 from pathlib import Path
 from datetime import date
 import re
+import threading
 import logging
 import tempfile
 
@@ -16,9 +17,23 @@ IDENTITY_FILE = BASE / "IDENTITY.md"
 TOOLS_FILE    = BASE / "TOOLS.md"
 LOG_DIR       = BASE / "memory"
 
+# Obergrenzen
+MAX_USER_FACTS = 30
+MAX_MEMORY_EVENTS = 200
+
+# Ein Lock pro Datei-Typ schützt vor concurrent write/read. Wakeword + WS
+# können parallel loggen, deshalb brauchen wir das.
+_user_lock = threading.Lock()
+_memory_lock = threading.Lock()
+_log_lock = threading.Lock()
+
 
 def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+    try:
+        return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+    except OSError as e:
+        logger.warning(f"_read({path}) fehlgeschlagen: {e}")
+        return ""
 
 
 def _safe_write(path: Path, content: str):
@@ -37,22 +52,19 @@ def _safe_write(path: Path, content: str):
 # ── System-Prompt ─────────────────────────────────────────────────────────────
 
 def load_system_prompt() -> str:
-    """
-    Kompakter System-Prompt: SOUL + USER-Fakten + MEMORY-Ereignisse.
-    IDENTITY und TOOLS werden weggelassen um Token zu sparen.
-    """
+    """Kompakter System-Prompt: SOUL + USER-Fakten + MEMORY-Ereignisse.
+    IDENTITY und TOOLS werden weggelassen um Token zu sparen."""
     from datetime import datetime
     today = datetime.now().strftime("%A, %d. %B %Y")
 
-    soul    = f"Heute ist {today}.\n\n" + _read(SOUL_FILE)
-    user    = _read(USER_FILE)
-    memory  = _read(MEMORY_FILE)
+    soul   = f"Heute ist {today}.\n\n" + _read(SOUL_FILE)
+    user   = _read(USER_FILE)
+    memory = _read(MEMORY_FILE)
 
     parts = [soul]
     if user:
         parts.append(f"## Was du über Kevin weißt\n{user}")
     if memory:
-        # Nur die letzten 10 Ereignisse laden
         lines = [l for l in memory.splitlines() if l.strip().startswith("-")]
         recent = "\n".join(lines[-10:])
         if recent:
@@ -64,32 +76,30 @@ def load_system_prompt() -> str:
 # ── Tages-Kontext für Chat-History ───────────────────────────────────────────
 
 def load_recent_context(n: int = 3) -> list[dict]:
-    """
-    Lädt die letzten n Gespräche von heute als Chat-Messages.
-    Gibt eine Liste von {"role": ..., "content": ...} zurück.
-    Wird VOR der aktuellen Nachricht in die History injiziert.
-    """
-    LOG_DIR.mkdir(exist_ok=True)
+    """Lädt die letzten n Gespräche von heute als Chat-Messages."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = LOG_DIR / f"{date.today().isoformat()}.md"
     if not log_file.exists():
         return []
 
-    content = log_file.read_text(encoding="utf-8")
-    # Blöcke parsen: ### Datum\n**Kevin:** ...\n**Chanti:** ...
+    try:
+        content = log_file.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.warning(f"load_recent_context: {e}")
+        return []
+
     blocks = re.findall(
         r'\*\*Kevin:\*\*\s*(.+?)\n\*\*Chanti:\*\*\s*(.+?)(?=\n###|\Z)',
         content,
-        re.DOTALL
+        re.DOTALL,
     )
 
-    # Nur die letzten n Paare
     recent = blocks[-n:] if len(blocks) >= n else blocks
 
     messages = []
     for user_msg, assistant_msg in recent:
         messages.append({"role": "user",      "content": user_msg.strip()})
         messages.append({"role": "assistant", "content": assistant_msg.strip()})
-
     return messages
 
 
@@ -107,106 +117,261 @@ def _write_user_facts(facts: list[str]):
     _safe_write(USER_FILE, header + "\n".join(facts) + "\n")
 
 
+def _normalize(s: str) -> str:
+    """Für Duplikat-Vergleich: lowercase, Leading-Dash weg, Whitespace normalisiert."""
+    return re.sub(r"\s+", " ", s.lower().lstrip("- ").strip())
+
+
 def _is_duplicate(new: str, existing: list[str]) -> bool:
     """Einfacher Duplikat-Check: exakt oder sehr ähnlich (80% Wort-Overlap)."""
-    new_clean = new.lower().lstrip("- ").strip()
+    new_clean = _normalize(new)
+    if not new_clean:
+        return True  # leerer Fakt = immer "Duplikat"
     new_words = set(new_clean.split())
     for e in existing:
-        e_clean = e.lower().lstrip("- ").strip()
+        e_clean = _normalize(e)
         if new_clean == e_clean:
             return True
         e_words = set(e_clean.split())
         if len(new_words) > 2 and len(e_words) > 2:
-            overlap = len(new_words & e_words) / max(len(new_words), len(e_words))
-            if overlap >= 0.8:
+            union = len(new_words | e_words)
+            if union == 0:
+                continue
+            jaccard = len(new_words & e_words) / union
+            if jaccard >= 0.8:
                 return True
     return False
 
 
-# Fakten die nicht in USER.md gespeichert werden sollen
-_FACT_BLACKLIST = [
-    "datum", "uhrzeit", "heute", "uhr", "tag ist",
+# Fakten die nicht in USER.md gespeichert werden sollen.
+# Wort-basierter Match (nicht substring), damit "uhr" nicht in "Uhrzeigersinn" matcht.
+_FACT_BLACKLIST_WORDS = {
+    "datum", "uhrzeit", "heute", "uhr", "tag",
+    "gedächtnis", "persistentes",
+}
+# Diese Phrasen (substring) sind Selbstbezüge von Chanti und gehören nicht in USER.md
+_FACT_BLACKLIST_PHRASES = (
     "chanti kann", "chanti ist", "chanti hat", "chanti erinnert",
-    "gedächtnis", "persistentes"
-]
+)
+
+
+def _is_blacklisted(fact: str) -> bool:
+    low = fact.lower()
+    if any(p in low for p in _FACT_BLACKLIST_PHRASES):
+        return True
+    words = set(re.findall(r"\w+", low))
+    return bool(words & _FACT_BLACKLIST_WORDS)
+
 
 def add_user_fact(fact: str):
-    """Fügt einen Fakt zu USER.md hinzu. Max 30, keine Duplikate."""
-    fact = fact.strip().lstrip("- ")
+    """Fügt einen Fakt zu USER.md hinzu. Max MAX_USER_FACTS, keine Duplikate."""
+    fact = fact.strip().lstrip("- ").strip()
     if not fact:
         return
-    # Blacklist prüfen
-    fact_lower = fact.lower()
-    if any(blocked in fact_lower for blocked in _FACT_BLACKLIST):
+    if _is_blacklisted(fact):
         logger.debug(f"Fakt gefiltert: {fact[:50]}")
         return
     line = f"- {fact}"
-    facts = _read_user_facts()
-    if _is_duplicate(line, facts):
-        return
-    facts.append(line)
-    _write_user_facts(facts[-30:])
+    with _user_lock:
+        facts = _read_user_facts()
+        if _is_duplicate(line, facts):
+            return
+        facts.append(line)
+        _write_user_facts(facts[-MAX_USER_FACTS:])
 
 
 def correct_user_fact(old: str, new: str):
     """Ersetzt einen veralteten Fakt."""
-    old_line = f"- {old.strip().lstrip('- ')}"
-    new_line = f"- {new.strip().lstrip('- ')}"
-    facts = _read_user_facts()
-    replaced = False
-    for i, f in enumerate(facts):
-        if f == old_line or _is_duplicate(old_line, [f]):
-            facts[i] = new_line
-            replaced = True
-            break
-    if not replaced:
-        facts.append(new_line)
-    _write_user_facts(facts[-30:])
+    old_line = f"- {old.strip().lstrip('- ').strip()}"
+    new_line = f"- {new.strip().lstrip('- ').strip()}"
+    with _user_lock:
+        facts = _read_user_facts()
+        replaced = False
+        for i, f in enumerate(facts):
+            if _normalize(f) == _normalize(old_line):
+                facts[i] = new_line
+                replaced = True
+                break
+        if not replaced:
+            # Fuzzy-Fallback: am ähnlichsten ersetzen
+            for i, f in enumerate(facts):
+                if _is_duplicate(old_line, [f]):
+                    facts[i] = new_line
+                    replaced = True
+                    break
+        if not replaced:
+            facts.append(new_line)
+        _write_user_facts(facts[-MAX_USER_FACTS:])
 
 
 # ── MEMORY.md ────────────────────────────────────────────────────────────────
 
+def _read_memory_lines() -> tuple[list[str], list[str]]:
+    """Gibt (header_lines, event_lines) zurück. Event-Lines sind '- [date] text'."""
+    if not MEMORY_FILE.exists():
+        return [], []
+    lines = MEMORY_FILE.read_text(encoding="utf-8").splitlines()
+    events = [l for l in lines if l.strip().startswith("- ")]
+    header = [l for l in lines if not l.strip().startswith("- ")]
+    return header, events
+
+
+def _write_memory(header: list[str], events: list[str]):
+    content = "\n".join(header).rstrip() + "\n\n" + "\n".join(events) + "\n"
+    _safe_write(MEMORY_FILE, content)
+
+
+_MEMORY_DATE_PREFIX = re.compile(r"^\s*-?\s*\[\d{4}-\d{2}-\d{2}\]\s*")
+
+
+def _memory_text(line: str) -> str:
+    """Extrahiert den reinen Ereignis-Text (ohne '- ' und Datum-Prefix)."""
+    return _normalize(_MEMORY_DATE_PREFIX.sub("", line))
+
+
 def add_memory_event(event: str):
-    """Fügt ein datiertes Ereignis zu MEMORY.md hinzu."""
-    entry = f"- [{date.today().isoformat()}] {event.strip()}"
-    current = _read(MEMORY_FILE)
-    # Duplikat-Check
-    if event.strip().lower() in current.lower():
+    """Fügt ein datiertes Ereignis zu MEMORY.md hinzu.
+    Duplikat-Check gegen den Ereignis-Text, nicht gegen substring der ganzen Datei."""
+    event = event.strip()
+    if not event:
         return
-    _safe_write(MEMORY_FILE, current + "\n" + entry + "\n")
+    new_text = _normalize(event)
+
+    with _memory_lock:
+        header, events = _read_memory_lines()
+        if not header:
+            header = ["# MEMORY – Wichtige Ereignisse"]
+
+        for existing in events:
+            if _memory_text(existing) == new_text:
+                return  # exaktes Duplikat
+
+        entry = f"- [{date.today().isoformat()}] {event}"
+        events.append(entry)
+        # Älteste rauswerfen wenn über Limit
+        if len(events) > MAX_MEMORY_EVENTS:
+            events = events[-MAX_MEMORY_EVENTS:]
+        _write_memory(header, events)
 
 
 # ── Tages-Log ────────────────────────────────────────────────────────────────
 
 def log_conversation(user_text: str, assistant_text: str):
-    """Schreibt Gespräch in memory/YYYY-MM-DD.md."""
-    LOG_DIR.mkdir(exist_ok=True)
+    """Schreibt Gespräch in memory/YYYY-MM-DD.md. Thread-safe."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = LOG_DIR / f"{date.today().isoformat()}.md"
-    if not log_file.exists():
-        log_file.write_text(f"# Log {date.today().isoformat()}\n", encoding="utf-8")
-    entry = f"\n### {date.today().isoformat()}\n**Kevin:** {user_text}\n**Chanti:** {assistant_text}\n"
-    with log_file.open("a", encoding="utf-8") as f:
-        f.write(entry)
+    entry = (f"\n### {date.today().isoformat()}\n"
+             f"**Kevin:** {user_text}\n"
+             f"**Chanti:** {assistant_text}\n")
+    with _log_lock:
+        try:
+            if not log_file.exists():
+                log_file.write_text(f"# Log {date.today().isoformat()}\n",
+                                    encoding="utf-8")
+            with log_file.open("a", encoding="utf-8") as f:
+                f.write(entry)
+        except OSError as e:
+            logger.warning(f"log_conversation fehlgeschlagen: {e}")
 
 
 # ── Parser für Chantis Selbst-Befehle ────────────────────────────────────────
 
+# Matcht auch verschachtelte eckige Klammern in Fakten, indem bis zum
+# passenden schließenden ] außerhalb von Klammern gesucht wird.
+# Einfacher Weg: balanced-bracket-Parser statt Regex.
+
+def _extract_tagged(text: str, tag: str) -> list[str]:
+    """Findet alle [TAG: ...] Blöcke, erlaubt verschachtelte []."""
+    results = []
+    i = 0
+    prefix = f"[{tag}:"
+    pl = len(prefix)
+    t_low = text.lower()
+    while True:
+        start = t_low.find(prefix.lower(), i)
+        if start == -1:
+            break
+        depth = 1
+        j = start + pl
+        while j < len(text) and depth > 0:
+            c = text[j]
+            if c == "[":
+                depth += 1
+            elif c == "]":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if depth == 0:
+            results.append(text[start + pl:j].strip())
+            i = j + 1
+        else:
+            break
+    return results
+
+
 def parse_and_execute_commands(text: str) -> str:
-    """
-    Parst [MERKE:], [KORRIGIERE:], [EREIGNIS:] aus Chantis Antwort,
-    führt sie aus und entfernt die Tags aus dem sichtbaren Text.
-    """
-    for m in re.findall(r'\[MERKE:\s*(.+?)\]', text, re.IGNORECASE):
-        add_user_fact(m)
+    """Parst [MERKE:], [KORRIGIERE:], [EREIGNIS:] aus Chantis Antwort,
+    führt sie aus und entfernt die Tags aus dem sichtbaren Text."""
+    for m in _extract_tagged(text, "MERKE"):
+        try:
+            add_user_fact(m)
+        except Exception as e:
+            logger.warning(f"add_user_fact fehlgeschlagen: {e}")
 
-    for m in re.findall(r'\[KORRIGIERE:\s*(.+?)\s*(?:→|->)\s*(.+?)\]', text, re.IGNORECASE):
-        correct_user_fact(m[0], m[1])
+    for m in _extract_tagged(text, "KORRIGIERE"):
+        parts = re.split(r"\s*(?:→|->)\s*", m, maxsplit=1)
+        if len(parts) == 2:
+            try:
+                correct_user_fact(parts[0], parts[1])
+            except Exception as e:
+                logger.warning(f"correct_user_fact fehlgeschlagen: {e}")
 
-    for m in re.findall(r'\[EREIGNIS:\s*(.+?)\]', text, re.IGNORECASE):
-        add_memory_event(m)
+    for m in _extract_tagged(text, "EREIGNIS"):
+        try:
+            add_memory_event(m)
+        except Exception as e:
+            logger.warning(f"add_memory_event fehlgeschlagen: {e}")
 
-    clean = re.sub(r'\[(MERKE|KORRIGIERE|EREIGNIS):[^\]]+\]', '', text, flags=re.IGNORECASE)
-    return clean.strip()
+    # Tags aus sichtbarem Text entfernen — mit balanced-bracket-Logik.
+    return _strip_tags(text, ["MERKE", "KORRIGIERE", "EREIGNIS"]).strip()
+
+
+def _strip_tags(text: str, tags: list[str]) -> str:
+    """Entfernt alle [TAG: ...] Blöcke (inkl. verschachtelter []) aus Text."""
+    out = []
+    i = 0
+    lowered = text.lower()
+    tag_prefixes = [f"[{t.lower()}:" for t in tags]
+    while i < len(text):
+        matched = None
+        for p in tag_prefixes:
+            if lowered.startswith(p, i):
+                matched = p
+                break
+        if matched is None:
+            out.append(text[i])
+            i += 1
+            continue
+        # Überspringe bis zum passenden schließenden ]
+        depth = 1
+        j = i + len(matched)
+        while j < len(text) and depth > 0:
+            c = text[j]
+            if c == "[":
+                depth += 1
+            elif c == "]":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if depth == 0:
+            i = j + 1
+        else:
+            # Nicht geschlossen — belass es, sonst verschlucken wir den Rest.
+            out.append(text[i])
+            i += 1
+    return "".join(out)
 
 
 # ── Tages-Logs Cleanup ───────────────────────────────────────────────────────
@@ -224,7 +389,7 @@ def cleanup_old_logs(keep_days: int = 30):
             if file_date < cutoff:
                 log_file.unlink()
                 deleted += 1
-        except ValueError:
+        except (ValueError, OSError):
             pass
     if deleted:
         logger.info(f"{deleted} alte Log-Dateien gelöscht")

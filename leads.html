@@ -1,0 +1,1063 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chanti – Lead Intelligence</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --green:      #00ff41;
+            --green2:     #00cc33;
+            --green3:     #39ff14;
+            --green-dim:  #00882a;
+            --green-dark: #003a0f;
+            --bg:         #000300;
+            --bg2:        #010a03;
+            --bg3:        #021005;
+            --border:     rgba(0,255,65,0.18);
+            --text:       #b8ffb8;
+            --muted:      #1e6b2e;
+            --red:        #ff3333;
+            --orange:     #ff9933;
+            --yellow:     #ffdd33;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Share Tech Mono', monospace;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg, transparent, transparent 2px,
+                rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px
+            );
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* ── Header ── */
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 10px 20px;
+            background: var(--bg2);
+            position: relative;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+        .header-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo-area { display: flex; align-items: center; gap: 14px; }
+        .logo-bracket {
+            color: var(--green);
+            font-size: 1.4rem;
+            text-shadow: 0 0 8px var(--green);
+        }
+        h1 {
+            font-size: 1rem;
+            color: var(--green);
+            letter-spacing: 4px;
+            text-shadow: 0 0 6px var(--green);
+        }
+        .sub {
+            font-size: 0.58rem;
+            letter-spacing: 3px;
+            color: var(--green-dim);
+        }
+        .nav-link {
+            color: var(--green-dim);
+            text-decoration: none;
+            font-size: 0.7rem;
+            letter-spacing: 2px;
+            border: 1px solid var(--green-dim);
+            padding: 6px 12px;
+            transition: all 0.15s;
+        }
+        .nav-link:hover {
+            color: #000;
+            background: var(--green);
+            border-color: var(--green);
+            box-shadow: 0 0 12px var(--green);
+        }
+
+        /* ── Layout ── */
+        .main {
+            display: grid;
+            grid-template-columns: 220px 1fr 420px;
+            gap: 0;
+            flex: 1;
+            min-height: 0;
+            position: relative;
+            z-index: 5;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            border-right: 1px solid var(--border);
+            padding: 16px 10px;
+            background: var(--bg2);
+            overflow-y: auto;
+        }
+        .sidebar-title {
+            font-size: 0.54rem;
+            letter-spacing: 3px;
+            color: var(--green-dim);
+            padding: 0 8px 10px 8px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+        }
+        .stage {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            border-left: 2px solid transparent;
+            transition: all 0.1s;
+            color: var(--text);
+        }
+        .stage:hover {
+            background: rgba(0,255,65,0.04);
+            border-left-color: var(--green-dim);
+        }
+        .stage.active {
+            background: rgba(0,255,65,0.08);
+            border-left-color: var(--green);
+            color: var(--green);
+            text-shadow: 0 0 4px var(--green);
+        }
+        .stage-count {
+            font-size: 0.65rem;
+            color: var(--green-dim);
+            background: var(--bg3);
+            padding: 1px 6px;
+            border: 1px solid var(--green-dim);
+            min-width: 28px;
+            text-align: center;
+        }
+        .stage.active .stage-count {
+            color: var(--green);
+            border-color: var(--green);
+        }
+
+        /* ── Center ── */
+        .center {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background: var(--bg);
+        }
+        .search-bar {
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg2);
+            display: grid;
+            grid-template-columns: 1fr 1fr 80px 80px auto;
+            gap: 8px;
+            align-items: end;
+        }
+        .search-bar label {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .search-bar .lbl {
+            font-size: 0.56rem;
+            letter-spacing: 3px;
+            color: var(--green-dim);
+        }
+        .search-bar input {
+            background: rgba(0,255,65,0.04);
+            border: 1px solid var(--green-dim);
+            color: var(--text);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.82rem;
+            padding: 6px 8px;
+            outline: none;
+        }
+        .search-bar input:focus { border-color: var(--green); }
+        .search-btn {
+            background: transparent;
+            border: 1px solid var(--green);
+            color: var(--green);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.72rem;
+            letter-spacing: 3px;
+            padding: 7px 20px;
+            cursor: pointer;
+            transition: all 0.15s;
+            height: 32px;
+        }
+        .search-btn:hover {
+            background: var(--green);
+            color: #000;
+            box-shadow: 0 0 14px var(--green);
+        }
+        .search-btn:disabled {
+            opacity: 0.3;
+            cursor: wait;
+        }
+
+        /* ── Table ── */
+        .table-wrap {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .table-wrap::-webkit-scrollbar { width: 3px; }
+        .table-wrap::-webkit-scrollbar-thumb { background: var(--green-dim); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+        }
+        thead th {
+            position: sticky;
+            top: 0;
+            background: var(--bg2);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 8px;
+            text-align: left;
+            font-size: 0.56rem;
+            letter-spacing: 3px;
+            color: var(--green-dim);
+            font-weight: normal;
+            z-index: 2;
+        }
+        tbody tr {
+            border-bottom: 1px solid rgba(0,255,65,0.05);
+            cursor: pointer;
+            transition: background 0.08s;
+        }
+        tbody tr:hover { background: rgba(0,255,65,0.04); }
+        tbody tr.selected {
+            background: rgba(0,255,65,0.1);
+            box-shadow: inset 3px 0 0 var(--green);
+        }
+        tbody td { padding: 8px; vertical-align: middle; }
+
+        .score-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            border: 1px solid;
+            min-width: 36px;
+            text-align: center;
+        }
+        .score-priority { color: var(--green3); border-color: var(--green3); text-shadow: 0 0 6px var(--green3); }
+        .score-hot      { color: var(--green); border-color: var(--green); }
+        .score-solid    { color: var(--yellow); border-color: var(--yellow); }
+        .score-weak     { color: var(--green-dim); border-color: var(--green-dim); }
+        .score-rejected { color: var(--red); border-color: rgba(255,51,51,0.4); }
+        .score-none     { color: var(--muted); border-color: var(--muted); }
+
+        .status-pill {
+            display: inline-block;
+            padding: 1px 6px;
+            font-size: 0.58rem;
+            letter-spacing: 2px;
+            border: 1px solid var(--green-dim);
+            color: var(--green-dim);
+        }
+        .status-new       { color: var(--text);   border-color: var(--green-dim); }
+        .status-analyzed  { color: var(--yellow); border-color: var(--yellow); }
+        .status-qualified { color: var(--green);  border-color: var(--green); }
+        .status-researched{ color: var(--green3); border-color: var(--green3); }
+        .status-drafted   { color: var(--orange); border-color: var(--orange); }
+        .status-sent      { color: var(--green3); border-color: var(--green3); background: rgba(0,255,65,0.08); }
+        .status-failed    { color: var(--red);    border-color: var(--red); }
+        .status-rejected  { color: var(--muted);  border-color: var(--muted); }
+
+        .subscores {
+            font-size: 0.62rem;
+            color: var(--green-dim);
+        }
+
+        /* ── Detail Panel ── */
+        .detail {
+            border-left: 1px solid var(--border);
+            background: var(--bg2);
+            padding: 16px;
+            overflow-y: auto;
+        }
+        .detail::-webkit-scrollbar { width: 3px; }
+        .detail::-webkit-scrollbar-thumb { background: var(--green-dim); }
+
+        .detail-empty {
+            color: var(--muted);
+            text-align: center;
+            padding: 60px 0;
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+        }
+
+        .detail h2 {
+            color: var(--green);
+            font-size: 1rem;
+            letter-spacing: 2px;
+            text-shadow: 0 0 6px var(--green);
+            margin-bottom: 4px;
+        }
+        .detail .muted-line {
+            font-size: 0.72rem;
+            color: var(--green-dim);
+            margin-bottom: 14px;
+        }
+        .section {
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(0,255,65,0.06);
+        }
+        .section:last-child { border-bottom: none; }
+        .section-title {
+            font-size: 0.58rem;
+            letter-spacing: 3px;
+            color: var(--green-dim);
+            margin-bottom: 8px;
+        }
+        .kv {
+            display: grid;
+            grid-template-columns: 90px 1fr;
+            gap: 4px 8px;
+            font-size: 0.78rem;
+            margin-bottom: 3px;
+        }
+        .kv .k { color: var(--green-dim); font-size: 0.72rem; }
+        .kv .v { color: var(--text); word-break: break-word; }
+        .kv .v a { color: var(--green); text-decoration: none; }
+        .kv .v a:hover { text-shadow: 0 0 6px var(--green); }
+
+        .action-row {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 6px;
+        }
+        .btn {
+            background: transparent;
+            border: 1px solid var(--green-dim);
+            color: var(--green-dim);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.68rem;
+            letter-spacing: 2px;
+            padding: 5px 10px;
+            cursor: pointer;
+            transition: all 0.12s;
+        }
+        .btn:hover {
+            color: var(--green);
+            border-color: var(--green);
+            box-shadow: 0 0 8px rgba(0,255,65,0.3);
+        }
+        .btn.primary {
+            color: var(--green);
+            border-color: var(--green);
+        }
+        .btn.primary:hover {
+            background: var(--green);
+            color: #000;
+            box-shadow: 0 0 12px var(--green);
+        }
+        .btn.danger { color: var(--red); border-color: rgba(255,51,51,0.4); }
+        .btn.danger:hover { background: var(--red); color: #000; box-shadow: 0 0 10px var(--red); }
+        .btn:disabled { opacity: 0.3; cursor: wait; }
+
+        .screenshot-box {
+            border: 1px solid var(--border);
+            padding: 4px;
+            background: var(--bg3);
+            margin-top: 6px;
+        }
+        .screenshot-box img {
+            width: 100%;
+            display: block;
+        }
+
+        .problem-tag {
+            display: inline-block;
+            font-size: 0.64rem;
+            color: var(--orange);
+            border: 1px solid rgba(255,153,51,0.3);
+            padding: 1px 5px;
+            margin: 2px 3px 2px 0;
+        }
+
+        .mail-editor {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .mail-editor input,
+        .mail-editor textarea {
+            background: rgba(0,255,65,0.04);
+            border: 1px solid var(--green-dim);
+            color: var(--text);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.78rem;
+            padding: 6px 8px;
+            outline: none;
+        }
+        .mail-editor input:focus,
+        .mail-editor textarea:focus { border-color: var(--green); }
+        .mail-editor textarea {
+            min-height: 220px;
+            resize: vertical;
+            line-height: 1.45;
+        }
+        .style-select {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            font-size: 0.68rem;
+        }
+        .style-select select {
+            background: var(--bg3);
+            border: 1px solid var(--green-dim);
+            color: var(--text);
+            font-family: 'Share Tech Mono', monospace;
+            padding: 3px 6px;
+        }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 200;
+            background: var(--bg2);
+            border: 1px solid var(--green);
+            color: var(--green);
+            padding: 10px 20px;
+            font-size: 0.78rem;
+            letter-spacing: 2px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+            box-shadow: 0 0 20px rgba(0,255,65,0.2);
+        }
+        #toast.show { opacity: 1; }
+        #toast.error { border-color: var(--red); color: var(--red); }
+
+        /* ── Confirm Dialog ── */
+        #confirm-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,3,0,0.85);
+            z-index: 300;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        #confirm-overlay.open { display: flex; }
+        .confirm-panel {
+            background: var(--bg2);
+            border: 1px solid var(--green);
+            padding: 20px 24px;
+            max-width: 480px;
+            box-shadow: 0 0 40px rgba(0,255,65,0.2);
+            position: relative;
+        }
+        .confirm-panel::before {
+            content: ''; position: absolute;
+            top: -1px; left: -1px; width: 14px; height: 14px;
+            border-top: 1px solid var(--green); border-left: 1px solid var(--green);
+        }
+        .confirm-panel::after {
+            content: ''; position: absolute;
+            bottom: -1px; right: -1px; width: 14px; height: 14px;
+            border-bottom: 1px solid var(--green); border-right: 1px solid var(--green);
+        }
+        .confirm-title {
+            font-size: 0.7rem;
+            letter-spacing: 4px;
+            color: var(--green);
+            margin-bottom: 12px;
+            text-shadow: 0 0 6px var(--green);
+        }
+        .confirm-msg {
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin-bottom: 16px;
+            color: var(--text);
+        }
+        .confirm-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        /* ── Loading Indicator ── */
+        .loading {
+            display: inline-block;
+            color: var(--green);
+            font-size: 0.7rem;
+        }
+        .loading::after {
+            content: '';
+            animation: dots 1.2s steps(4, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40%     { content: '..'; }
+            60%     { content: '...'; }
+            80%,100%{ content: ''; }
+        }
+
+        .empty-state {
+            color: var(--muted);
+            text-align: center;
+            padding: 40px;
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="header-inner">
+        <div class="logo-area">
+            <div class="logo-bracket">[|]</div>
+            <div>
+                <h1>CHANTI // LEAD INTEL</h1>
+                <div class="sub">PIPELINE v1.0</div>
+            </div>
+        </div>
+        <a href="/" class="nav-link">← ZURÜCK ZUM CHAT</a>
+    </div>
+</header>
+
+<div class="main">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-title">// PIPELINE</div>
+        <div class="stage active" data-status="all">       <span>ALLE</span>        <span class="stage-count" id="cnt-all">0</span></div>
+        <div class="stage" data-status="new">              <span>NEU</span>         <span class="stage-count" id="cnt-new">0</span></div>
+        <div class="stage" data-status="analyzed">         <span>ANALYSIERT</span>  <span class="stage-count" id="cnt-analyzed">0</span></div>
+        <div class="stage" data-status="researched">       <span>RECHERCHIERT</span><span class="stage-count" id="cnt-researched">0</span></div>
+        <div class="stage" data-status="drafted">          <span>MAIL-DRAFT</span>  <span class="stage-count" id="cnt-drafted">0</span></div>
+        <div class="stage" data-status="sent">             <span>VERSENDET</span>   <span class="stage-count" id="cnt-sent">0</span></div>
+        <div class="stage" data-status="failed">           <span>FEHLER</span>      <span class="stage-count" id="cnt-failed">0</span></div>
+
+        <div class="sidebar-title" style="margin-top: 22px;">// FILTER</div>
+        <div style="padding: 6px 10px;">
+            <div class="lbl" style="font-size: 0.56rem; color: var(--green-dim); margin-bottom: 4px; letter-spacing: 2px;">MIN-SCORE</div>
+            <input type="number" id="filter-score" value="0" min="0" max="100" step="5"
+                   style="width: 100%; background: rgba(0,255,65,0.04); border: 1px solid var(--green-dim); color: var(--text); font-family: 'Share Tech Mono', monospace; font-size: 0.78rem; padding: 4px 8px; outline: none;"/>
+        </div>
+        <div style="padding: 6px 10px;">
+            <div class="lbl" style="font-size: 0.56rem; color: var(--green-dim); margin-bottom: 4px; letter-spacing: 2px;">SUCHE</div>
+            <input type="text" id="filter-search" placeholder="NAME/STADT"
+                   style="width: 100%; background: rgba(0,255,65,0.04); border: 1px solid var(--green-dim); color: var(--text); font-family: 'Share Tech Mono', monospace; font-size: 0.78rem; padding: 4px 8px; outline: none;"/>
+        </div>
+    </aside>
+
+    <!-- Center -->
+    <section class="center">
+        <div class="search-bar">
+            <label>
+                <span class="lbl">BRANCHE</span>
+                <input type="text" id="q-branche" placeholder="z.B. Zimmerei" value=""/>
+            </label>
+            <label>
+                <span class="lbl">ORT</span>
+                <input type="text" id="q-ort" placeholder="z.B. Ibbenbüren" value=""/>
+            </label>
+            <label>
+                <span class="lbl">ANZAHL</span>
+                <input type="number" id="q-count" value="10" min="1" max="50"/>
+            </label>
+            <label>
+                <span class="lbl">RADIUS KM</span>
+                <input type="number" id="q-radius" value="15" min="1" max="200"/>
+            </label>
+            <button class="search-btn" id="btn-search" onclick="runSearch()">→ SUCHEN</button>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">SCORE</th>
+                        <th>FIRMA</th>
+                        <th style="width: 140px;">STADT</th>
+                        <th style="width: 120px;">STATUS</th>
+                        <th style="width: 110px;">BEDARF/ZAHL</th>
+                    </tr>
+                </thead>
+                <tbody id="rows">
+                    <tr><td colspan="5" class="empty-state">// LADE...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Detail -->
+    <aside class="detail" id="detail">
+        <div class="detail-empty">// FIRMA AUSWÄHLEN</div>
+    </aside>
+</div>
+
+<div id="toast"></div>
+
+<div id="confirm-overlay" onclick="confirmClose(false)">
+    <div class="confirm-panel" onclick="event.stopPropagation()">
+        <div class="confirm-title" id="confirm-title">// BESTÄTIGEN</div>
+        <div class="confirm-msg" id="confirm-msg">Sicher?</div>
+        <div class="confirm-buttons">
+            <button class="btn" onclick="confirmClose(false)">ABBRECHEN</button>
+            <button class="btn primary" id="confirm-ok" onclick="confirmClose(true)">OK</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─────────────────── State ───────────────────
+let state = {
+    status: 'all',
+    minScore: 0,
+    search: '',
+    selectedId: null,
+    rows: [],
+    busy: false,
+};
+
+// ─────────────────── API helpers ───────────────────
+async function api(method, path, body) {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const r = await fetch(path, opts);
+    if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); msg = j.detail || msg; } catch {}
+        throw new Error(msg);
+    }
+    if (r.status === 204) return null;
+    return await r.json();
+}
+
+// ─────────────────── Toast ───────────────────
+let toastTimer;
+function toast(msg, isError) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.toggle('error', !!isError);
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+// ─────────────────── Confirm ───────────────────
+function confirmDialog(title, msg, okLabel) {
+    return new Promise(resolve => {
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-msg').textContent = msg;
+        document.getElementById('confirm-ok').textContent = okLabel || 'OK';
+        document.getElementById('confirm-overlay').classList.add('open');
+        window._confirmResolve = resolve;
+    });
+}
+function confirmClose(ok) {
+    document.getElementById('confirm-overlay').classList.remove('open');
+    if (window._confirmResolve) {
+        window._confirmResolve(ok);
+        window._confirmResolve = null;
+    }
+}
+
+// ─────────────────── Escape ───────────────────
+function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+}
+
+// ─────────────────── Status-/Score-Helpers ───────────────────
+function scoreClass(total) {
+    if (total == null) return 'score-none';
+    if (total >= 80) return 'score-priority';
+    if (total >= 60) return 'score-hot';
+    if (total >= 40) return 'score-solid';
+    if (total >= 20) return 'score-weak';
+    return 'score-rejected';
+}
+
+function formatScore(total) {
+    if (total == null) return '–';
+    return Math.round(total);
+}
+
+// ─────────────────── Loading Stats ───────────────────
+async function loadStats() {
+    try {
+        const s = await api('GET', '/leads/stats');
+        const map = {
+            all: 'cnt-all', new: 'cnt-new', analyzed: 'cnt-analyzed',
+            researched: 'cnt-researched', drafted: 'cnt-drafted',
+            sent: 'cnt-sent', failed: 'cnt-failed',
+        };
+        for (const [k, id] of Object.entries(map)) {
+            document.getElementById(id).textContent = s[k] || 0;
+        }
+    } catch (e) { console.error(e); }
+}
+
+// ─────────────────── Loading Rows ───────────────────
+async function loadRows() {
+    const params = new URLSearchParams();
+    if (state.status && state.status !== 'all') params.append('status', state.status);
+    if (state.minScore > 0) params.append('min_score', state.minScore);
+    if (state.search) params.append('search', state.search);
+
+    try {
+        const d = await api('GET', '/leads/companies?' + params.toString());
+        state.rows = d.companies || [];
+        renderRows();
+    } catch (e) {
+        document.getElementById('rows').innerHTML =
+            `<tr><td colspan="5" class="empty-state">// FEHLER: ${esc(e.message)}</td></tr>`;
+    }
+}
+
+function renderRows() {
+    const tbody = document.getElementById('rows');
+    if (!state.rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">// KEINE FIRMEN</td></tr>';
+        return;
+    }
+    tbody.innerHTML = state.rows.map(r => {
+        const total = r.total_score;
+        const cls = scoreClass(total);
+        const sel = (r.id === state.selectedId) ? 'selected' : '';
+        const need = r.need_score != null ? r.need_score.toFixed(0) : '–';
+        const pay  = r.payability_score != null ? r.payability_score.toFixed(0) : '–';
+        return `
+            <tr class="${sel}" onclick="selectRow(${r.id})">
+                <td><span class="score-badge ${cls}">${formatScore(total)}</span></td>
+                <td>${esc(r.name)}</td>
+                <td>${esc(r.city || '–')}</td>
+                <td><span class="status-pill status-${r.status}">${esc((r.status || 'new').toUpperCase())}</span></td>
+                <td class="subscores">B ${need} × Z ${pay}</td>
+            </tr>`;
+    }).join('');
+}
+
+// ─────────────────── Row-Selection / Detail ───────────────────
+async function selectRow(id) {
+    state.selectedId = id;
+    renderRows();
+    const panel = document.getElementById('detail');
+    panel.innerHTML = '<div class="detail-empty">// LADE<span class="loading"></span></div>';
+    try {
+        const full = await api('GET', '/leads/companies/' + id);
+        renderDetail(full);
+    } catch (e) {
+        panel.innerHTML = `<div class="detail-empty" style="color:var(--red)">// FEHLER: ${esc(e.message)}</div>`;
+    }
+}
+
+function renderDetail(c) {
+    const wa = c.website_analysis || {};
+    const sc = c.scores || {};
+    const rep = c.reputation || {};
+    const emails = c.emails || [];
+    const latestEmail = emails[0];
+    const hasScreenshot = !!wa.screenshot_path;
+    let problems = [];
+    try { problems = JSON.parse(wa.problems_json || '[]'); } catch {}
+
+    const totalCls = scoreClass(sc.total_score);
+
+    let html = `
+        <h2>${esc(c.name)}</h2>
+        <div class="muted-line">${esc(c.city || '–')} · ID ${c.id} · ${esc((c.status||'new').toUpperCase())}</div>
+
+        <div class="section">
+            <div class="section-title">// SCORE</div>
+            <div style="display:flex; gap:14px; align-items:baseline; margin-bottom: 6px;">
+                <span class="score-badge ${totalCls}" style="font-size: 1.1rem; padding: 4px 14px;">${formatScore(sc.total_score)}</span>
+                <span class="subscores">Bedarf ${sc.need_score != null ? sc.need_score.toFixed(1) : '–'} × Zahl. ${sc.payability_score != null ? sc.payability_score.toFixed(1) : '–'}</span>
+            </div>
+            ${sc.reason ? `<div style="font-size: 0.72rem; color: var(--green-dim); line-height: 1.4;">${esc(sc.reason)}</div>` : ''}
+        </div>
+
+        <div class="section">
+            <div class="section-title">// KONTAKT</div>
+            <div class="kv"><span class="k">Website</span><span class="v">${c.website_url
+                ? `<a href="${esc(c.website_url)}" target="_blank" rel="noopener">${esc(c.website_url)}</a>`
+                : '<span style="color:var(--muted)">–</span>'}</span></div>
+            <div class="kv"><span class="k">E-Mail</span><span class="v">${esc(c.email) || '<span style="color:var(--muted)">–</span>'}</span></div>
+            <div class="kv"><span class="k">Telefon</span><span class="v">${esc(c.phone) || '<span style="color:var(--muted)">–</span>'}</span></div>
+            <div class="kv"><span class="k">Adresse</span><span class="v">${esc(c.address) || '<span style="color:var(--muted)">–</span>'}</span></div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">// AKTIONEN</div>
+            <div class="action-row">
+                <button class="btn primary" onclick="doAnalyze(${c.id})">1. ANALYSIEREN</button>
+                <button class="btn primary" onclick="doResearch(${c.id})" ${wa.analyzed_at ? '' : 'disabled'}>2. DOSSIER</button>
+                <button class="btn primary" onclick="doDraft(${c.id})" ${rep.fetched_at ? '' : 'disabled'}>3. MAIL</button>
+                <button class="btn danger" onclick="doDelete(${c.id})">LÖSCHEN</button>
+            </div>
+        </div>
+    `;
+
+    if (wa.analyzed_at) {
+        html += `
+        <div class="section">
+            <div class="section-title">// WEBSITE-ANALYSE</div>
+            <div class="kv"><span class="k">Erreichbar</span><span class="v">${wa.reachable ? 'ja' : 'nein'} ${wa.http_status ? '('+wa.http_status+')' : ''}</span></div>
+            <div class="kv"><span class="k">Titel</span><span class="v">${esc(wa.title) || '<span style="color:var(--muted)">–</span>'}</span></div>
+            <div class="kv"><span class="k">Wörter</span><span class="v">${wa.word_count ?? '–'}</span></div>
+            <div class="kv"><span class="k">Plattform</span><span class="v">${esc(wa.platform_detected) || '<span style="color:var(--muted)">unbekannt</span>'}</span></div>
+            <div class="kv"><span class="k">Mobil</span><span class="v">${wa.has_viewport ? 'ja' : 'nein'}</span></div>
+            <div class="kv"><span class="k">HTTPS</span><span class="v">${wa.has_ssl ? 'ja' : 'nein'}</span></div>
+            <div class="kv"><span class="k">Aufbau</span><span class="v">${wa.under_construction ? 'ja – Platzhalter' : 'nein'}</span></div>
+            ${problems.length ? `<div style="margin-top: 6px;">${problems.map(p => `<span class="problem-tag">${esc(p)}</span>`).join('')}</div>` : ''}
+            ${hasScreenshot ? `<div class="screenshot-box"><img src="/leads/companies/${c.id}/screenshot?t=${Date.now()}" alt="Screenshot"/></div>` : ''}
+        </div>`;
+    }
+
+    if (rep.fetched_at) {
+        const socials = [
+            rep.social_facebook  && ['Facebook',  rep.social_facebook],
+            rep.social_instagram && ['Instagram', rep.social_instagram],
+            rep.social_linkedin  && ['LinkedIn',  rep.social_linkedin],
+        ].filter(Boolean);
+        html += `
+        <div class="section">
+            <div class="section-title">// DOSSIER</div>
+            <div class="kv"><span class="k">Rating</span><span class="v">${rep.rating != null ? `★ ${rep.rating} (${rep.review_count || 0} Reviews)` : '<span style="color:var(--muted)">–</span>'}</span></div>
+            <div class="kv"><span class="k">Impressum</span><span class="v">${rep.has_impressum_email ? esc(rep.impressum_email) : '<span style="color:var(--muted)">keine Mail gefunden</span>'}</span></div>
+            <div class="kv"><span class="k">Domain-Alter</span><span class="v">${rep.domain_age_years != null ? rep.domain_age_years + ' Jahre' : '<span style="color:var(--muted)">unbekannt</span>'}</span></div>
+            ${socials.length
+                ? `<div class="kv"><span class="k">Social</span><span class="v">${socials.map(([n, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${n}</a>`).join(' · ')}</span></div>`
+                : `<div class="kv"><span class="k">Social</span><span class="v"><span style="color:var(--muted)">nicht gefunden</span></span></div>`}
+        </div>`;
+    }
+
+    if (latestEmail) {
+        html += `
+        <div class="section">
+            <div class="section-title">// MAIL-ENTWURF <span style="float:right; color: var(--green-dim);">${esc(latestEmail.stil || '')}</span></div>
+            <div class="mail-editor">
+                <input type="text" id="mail-subject" value="${esc(latestEmail.subject || '')}" placeholder="Betreff"/>
+                <textarea id="mail-body" placeholder="Mail-Text">${esc(latestEmail.body_text || '')}</textarea>
+                <div class="style-select">
+                    <span class="k" style="color: var(--green-dim); font-size: 0.62rem; letter-spacing: 2px;">NEU-GENERIEREN MIT STIL:</span>
+                    <select id="mail-stil">
+                        <option value="formell">FORMELL</option>
+                        <option value="locker">LOCKER</option>
+                        <option value="kurz">KURZ</option>
+                    </select>
+                    <button class="btn" onclick="doDraft(${c.id})">REGENERIEREN</button>
+                </div>
+                <div class="action-row" style="margin-top: 8px;">
+                    <button class="btn" onclick="saveEmail(${latestEmail.id})">SPEICHERN</button>
+                    <button class="btn primary" onclick="doSend(${c.id}, ${latestEmail.id}, '${esc(c.email || '')}')">→ SENDEN (GMX)</button>
+                </div>
+                ${latestEmail.status === 'sent' ? `<div style="color: var(--green3); font-size: 0.7rem; margin-top: 6px;">✓ VERSENDET AM ${esc(latestEmail.sent_at || '')}</div>` : ''}
+                ${latestEmail.status === 'failed' ? `<div style="color: var(--red); font-size: 0.7rem; margin-top: 6px;">✗ FEHLER: ${esc(latestEmail.error || '')}</div>` : ''}
+            </div>
+        </div>`;
+    }
+
+    document.getElementById('detail').innerHTML = html;
+}
+
+// ─────────────────── Aktionen ───────────────────
+async function runSearch() {
+    if (state.busy) return;
+    const branche = document.getElementById('q-branche').value.trim();
+    const ort = document.getElementById('q-ort').value.trim();
+    const count = parseInt(document.getElementById('q-count').value) || 10;
+    const radius = parseInt(document.getElementById('q-radius').value) || 15;
+    if (!branche || !ort) { toast('Branche und Ort erforderlich', true); return; }
+
+    setBusy(true, 'btn-search', '→ SUCHE LÄUFT...');
+    try {
+        const r = await api('POST', '/leads/search', {
+            branche, ort, count, radius_km: radius,
+        });
+        toast(`${r.created} neue Firmen (${r.found} gefunden, ${r.skipped_duplicates} Duplikate, ${r.used_radius_km}km)`);
+        await loadStats();
+        await loadRows();
+    } catch (e) {
+        toast('Suche fehlgeschlagen: ' + e.message, true);
+    } finally {
+        setBusy(false, 'btn-search', '→ SUCHEN');
+    }
+}
+
+async function doAnalyze(id) {
+    toast('Analysiere Website...');
+    try {
+        await api('POST', `/leads/companies/${id}/analyze`);
+        toast('Analyse fertig');
+        await loadStats();
+        await loadRows();
+        await selectRow(id);
+    } catch (e) {
+        toast('Analyse fehlgeschlagen: ' + e.message, true);
+    }
+}
+
+async function doResearch(id) {
+    toast('Recherchiere Dossier...');
+    try {
+        await api('POST', `/leads/companies/${id}/research`);
+        toast('Dossier fertig');
+        await loadStats();
+        await loadRows();
+        await selectRow(id);
+    } catch (e) {
+        toast('Dossier fehlgeschlagen: ' + e.message, true);
+    }
+}
+
+async function doDraft(id) {
+    const stilEl = document.getElementById('mail-stil');
+    const stil = stilEl ? stilEl.value : 'formell';
+    toast('Erzeuge Mail-Entwurf...');
+    try {
+        await api('POST', `/leads/companies/${id}/draft-email`, { stil });
+        toast('Entwurf erstellt');
+        await loadStats();
+        await loadRows();
+        await selectRow(id);
+    } catch (e) {
+        toast('Draft fehlgeschlagen: ' + e.message, true);
+    }
+}
+
+async function saveEmail(emailId) {
+    const subject = document.getElementById('mail-subject').value;
+    const body = document.getElementById('mail-body').value;
+    try {
+        await api('PUT', `/leads/emails/${emailId}`, { subject, body_text: body });
+        toast('Gespeichert');
+    } catch (e) {
+        toast('Speichern fehlgeschlagen: ' + e.message, true);
+    }
+}
+
+async function doSend(companyId, emailId, recipient) {
+    if (!recipient) {
+        toast('Keine E-Mail-Adresse in Kontakt gespeichert', true);
+        return;
+    }
+    // Vorher speichern falls unsaved
+    await saveEmail(emailId);
+
+    const ok = await confirmDialog(
+        '// WIRKLICH SENDEN?',
+        `E-Mail wird über GMX/n8n versendet an:\n\n${recipient}\n\nDiese Aktion kann nicht rückgängig gemacht werden.`,
+        'JA, SENDEN'
+    );
+    if (!ok) return;
+
+    toast('Sende...');
+    try {
+        const r = await api('POST', `/leads/companies/${companyId}/send`, { email_id: emailId });
+        if (r.ok) {
+            toast('✓ Mail versendet');
+            await loadStats();
+            await loadRows();
+            await selectRow(companyId);
+        } else {
+            toast('Versand fehlgeschlagen: ' + (r.error || 'unbekannt'), true);
+            await selectRow(companyId);
+        }
+    } catch (e) {
+        toast('Versand fehlgeschlagen: ' + e.message, true);
+    }
+}
+
+async function doDelete(id) {
+    const ok = await confirmDialog(
+        '// FIRMA LÖSCHEN?',
+        'Die Firma wird inklusive aller Analysen, Dossier-Daten und Mail-Drafts endgültig entfernt.',
+        'JA, LÖSCHEN'
+    );
+    if (!ok) return;
+    try {
+        await api('DELETE', `/leads/companies/${id}`);
+        state.selectedId = null;
+        document.getElementById('detail').innerHTML = '<div class="detail-empty">// FIRMA AUSWÄHLEN</div>';
+        toast('Gelöscht');
+        await loadStats();
+        await loadRows();
+    } catch (e) {
+        toast('Löschen fehlgeschlagen: ' + e.message, true);
+    }
+}
+
+function setBusy(busy, btnId, label) {
+    state.busy = busy;
+    const btn = document.getElementById(btnId);
+    if (btn) {
+        btn.disabled = busy;
+        if (label) btn.textContent = label;
+    }
+}
+
+// ─────────────────── Event wiring ───────────────────
+document.querySelectorAll('.stage').forEach(el => {
+    el.addEventListener('click', () => {
+        document.querySelectorAll('.stage').forEach(x => x.classList.remove('active'));
+        el.classList.add('active');
+        state.status = el.dataset.status;
+        loadRows();
+    });
+});
+
+let searchTimer;
+document.getElementById('filter-search').addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        state.search = e.target.value.trim();
+        loadRows();
+    }, 300);
+});
+document.getElementById('filter-score').addEventListener('change', e => {
+    state.minScore = parseInt(e.target.value) || 0;
+    loadRows();
+});
+document.getElementById('q-branche').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runSearch();
+});
+document.getElementById('q-ort').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runSearch();
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('confirm-overlay').classList.contains('open')) {
+        confirmClose(false);
+    }
+});
+
+// Initial load
+loadStats();
+loadRows();
+// Auto-refresh stats alle 30s
+setInterval(loadStats, 30000);
+</script>
+</body>
+</html>

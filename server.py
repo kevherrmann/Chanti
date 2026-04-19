@@ -1,27 +1,67 @@
+# Zentrales Logging ganz zuerst konfigurieren, BEVOR irgendein anderes
+# Chanti-Modul oder FastAPI/uvicorn sich am 'chanti'-Logger bedient.
+from logging_setup import setup_logging
+setup_logging()
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from llm import chat as llm_chat
 from tts import speak
-from memory import (load_system_prompt, load_recent_context, log_conversation,
+from memory import (SOUL_FILE, USER_FILE, MEMORY_FILE,
+                    load_system_prompt, load_recent_context, log_conversation,
                     parse_and_execute_commands, cleanup_old_logs)
 from skills_loader import load_skills, reload_if_changed, get_tools, get_executors
 from text_utils import clean_for_tts
+# NEU ▼ Kalender
+import calendar_core
+from calendar_startup import reminder_startup_task
+# NEU ▲
+# NEU ▼ Leads
+import leads_core
+import leads_db
+from leads_analyzer import website as _leads_website
+from pathlib import Path as _LeadPath
+# NEU ▲
 import asyncio
 import base64
 import subprocess
 import os
 import json
 import logging
-import traceback
+import threading
+import time
+from collections import deque
 
 logger = logging.getLogger("chanti")
 
-# --- Optionaler API-Key Schutz für HTTP-Endpoints ---
+# ---------------------------------------------------------------------------
+# Konfiguration & State
+# ---------------------------------------------------------------------------
+
 _API_KEY = os.environ.get("CHANTI_API_KEY", "")
+
+# Hot-Reload: statt bei jedem Request stat() zu machen, läuft ein
+# Background-Task alle 5 Sekunden durch die Skill-Files.
+_HOT_RELOAD_INTERVAL = 5.0
+
+# Einfaches In-Memory Rate-Limit für /chat und /notify — schützt vor
+# versehentlichen Endlosschleifen (z.B. n8n-Workflow-Bug, Telegram-Bot spammt).
+_RATE_LIMIT_MAX = 30        # max Requests
+_RATE_LIMIT_WINDOW = 60.0   # pro 60 Sekunden
+_rate_buckets: dict[str, deque] = {}
+_rate_lock = threading.Lock()
+
+# System-Prompt wird bei Änderung von SOUL/USER/MEMORY live neu geladen.
+_prompt_lock = threading.Lock()
+_prompt_mtimes: dict[str, float] = {}
+_current_prompt: str = ""
+
+# Wakeword und Screenshot-Basispfad (Leads)
+_LEADS_SCREENSHOTS_BASE = (_LeadPath.home() / "chanti" / "data" / "screenshots").resolve()
 
 
 def _check_auth(request: Request):
-    """Prüft API-Key wenn CHANTI_API_KEY gesetzt ist."""
     if not _API_KEY:
         return
     token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
@@ -29,17 +69,68 @@ def _check_auth(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-# --- Whisper Lazy-Loading ---
+def _rate_limit(key: str):
+    """Rolling-Window-Rate-Limit. Wirft 429 bei Überschreitung."""
+    now = time.monotonic()
+    with _rate_lock:
+        q = _rate_buckets.setdefault(key, deque())
+        # alte Einträge rauswerfen
+        while q and q[0] < now - _RATE_LIMIT_WINDOW:
+            q.popleft()
+        if len(q) >= _RATE_LIMIT_MAX:
+            retry = _RATE_LIMIT_WINDOW - (now - q[0])
+            raise HTTPException(
+                status_code=429,
+                detail=f"Zu viele Anfragen, bitte {retry:.0f}s warten.",
+                headers={"Retry-After": str(max(1, int(retry)))},
+            )
+        q.append(now)
+
+
+# ---------------------------------------------------------------------------
+# System-Prompt Live-Reload
+# ---------------------------------------------------------------------------
+
+def _prompt_files_mtimes() -> dict[str, float]:
+    out = {}
+    for p in (SOUL_FILE, USER_FILE, MEMORY_FILE):
+        try:
+            out[str(p)] = p.stat().st_mtime if p.exists() else 0.0
+        except OSError:
+            out[str(p)] = 0.0
+    return out
+
+
+def _refresh_prompt_if_changed() -> str:
+    """Prüft ob SOUL/USER/MEMORY geändert wurden und lädt den Prompt neu.
+    Gibt den aktuellen Prompt zurück (thread-safe)."""
+    global _current_prompt, _prompt_mtimes
+    current = _prompt_files_mtimes()
+    with _prompt_lock:
+        if current != _prompt_mtimes or not _current_prompt:
+            _current_prompt = load_system_prompt()
+            _prompt_mtimes = current
+            logger.info(f"System-Prompt neu geladen ({len(_current_prompt)} Zeichen)")
+        return _current_prompt
+
+
+# ---------------------------------------------------------------------------
+# Whisper Lazy-Loading
+# ---------------------------------------------------------------------------
+
 _whisper = None
+_whisper_lock = threading.Lock()
 
 
 def get_whisper():
     global _whisper
     if _whisper is None:
-        logger.info("Lade Whisper...")
-        from faster_whisper import WhisperModel as _WhisperModel
-        _whisper = _WhisperModel("base", device="cpu", compute_type="int8")
-        logger.info("Whisper bereit")
+        with _whisper_lock:
+            if _whisper is None:
+                logger.info("Lade Whisper…")
+                from faster_whisper import WhisperModel as _WhisperModel
+                _whisper = _WhisperModel("base", device="cpu", compute_type="int8")
+                logger.info("Whisper bereit")
     return _whisper
 
 
@@ -48,27 +139,88 @@ def _load_chat_html():
     return (Path(__file__).parent / "chat.html").read_text(encoding="utf-8")
 
 
-app = FastAPI()
+# ---------------------------------------------------------------------------
+# FastAPI Lifespan (ersetzt @app.on_event)
+# ---------------------------------------------------------------------------
+
 active_connections: list[WebSocket] = []
+_active_lock = threading.Lock()
 
-soul = load_system_prompt()
-logger.info(f"System-Prompt geladen ({len(soul)} Zeichen)")
 
-load_skills()
-cleanup_old_logs(keep_days=30)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # STARTUP
+    _refresh_prompt_if_changed()
+    load_skills()
+    cleanup_old_logs(keep_days=30)
+    leads_db.init_db()
 
+    # Kalender-Reminder-Task
+    rem_task = asyncio.create_task(reminder_startup_task())
+    logger.info("Kalender-Reminder-Task eingeplant")
+
+    # Screenshot-Cleanup einmalig
+    try:
+        await asyncio.get_running_loop().run_in_executor(
+            None, _leads_website.cleanup_old_screenshots, 30
+        )
+    except Exception as e:
+        logger.warning(f"Screenshot-Cleanup Fehler: {e}")
+
+    # Hot-Reload als Background-Task
+    async def _hot_reload_loop():
+        while True:
+            try:
+                await asyncio.sleep(_HOT_RELOAD_INTERVAL)
+                await asyncio.get_running_loop().run_in_executor(None, reload_if_changed)
+                # Prompt-Refresh ist billig (3 stat()-Calls)
+                await asyncio.get_running_loop().run_in_executor(
+                    None, _refresh_prompt_if_changed
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"Hot-Reload Fehler: {e}")
+
+    hot_task = asyncio.create_task(_hot_reload_loop())
+
+    try:
+        yield
+    finally:
+        # SHUTDOWN
+        hot_task.cancel()
+        rem_task.cancel()
+        for t in (hot_task, rem_task):
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Broadcast
+# ---------------------------------------------------------------------------
 
 async def broadcast_notify(message: str):
-    for ws in active_connections:
+    # Kopie der Connection-Liste ziehen, damit parallele Disconnects
+    # die Iteration nicht sprengen.
+    with _active_lock:
+        targets = list(active_connections)
+    for ws in targets:
         try:
             await ws.send_json({"type": "message", "text": message})
         except Exception:
             pass
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
-        None, lambda: speak(clean_for_tts(message))
-    )
+    await loop.run_in_executor(None, lambda: speak(clean_for_tts(message)))
 
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @app.get("/")
 async def index():
@@ -78,14 +230,17 @@ async def index():
 @app.post("/chat")
 async def chat_endpoint(request: Request):
     _check_auth(request)
+    _rate_limit(f"chat:{request.client.host if request.client else 'unknown'}")
     data = await request.json()
     text = data.get("message", "")
     if not text:
         return {"response": "Keine Nachricht erhalten."}
-    reload_if_changed()
+
+    soul = _refresh_prompt_if_changed()
     history = [{"role": "system", "content": soul}]
     history.extend(load_recent_context(n=5))
     history.append({"role": "user", "content": text})
+
     loop = asyncio.get_running_loop()
     response = await loop.run_in_executor(
         None, lambda: llm_chat(history, tools=get_tools(), executors=get_executors())
@@ -98,6 +253,7 @@ async def chat_endpoint(request: Request):
 @app.post("/notify")
 async def notify(request: Request):
     _check_auth(request)
+    _rate_limit(f"notify:{request.client.host if request.client else 'unknown'}")
     data = await request.json()
     message = data.get("message", "")
     if message:
@@ -105,11 +261,224 @@ async def notify(request: Request):
     return {"ok": True}
 
 
+# ── Kalender-REST ────────────────────────────────────────────────────────────
+
+@app.get("/calendar/events")
+async def calendar_list(request: Request):
+    _check_auth(request)
+    return {"events": calendar_core.list_all_sorted()}
+
+
+@app.post("/calendar/events")
+async def calendar_create(request: Request):
+    _check_auth(request)
+    data = await request.json()
+    try:
+        event = calendar_core.add_event(
+            title=data.get("title", ""),
+            date_iso=data.get("date", ""),
+            time_hm=data.get("time") or None,
+            recurring=data.get("recurring") or None,
+        )
+        return {"ok": True, "event": event}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/calendar/events/{event_id}")
+async def calendar_delete(event_id: str, request: Request):
+    _check_auth(request)
+    ok = calendar_core.delete_event(event_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Event nicht gefunden")
+    return {"ok": True}
+
+
+# ── Leads-UI + REST ─────────────────────────────────────────────────────────
+
+@app.get("/leads")
+async def leads_ui():
+    path = _LeadPath(__file__).parent / "leads.html"
+    return HTMLResponse(path.read_text(encoding="utf-8"))
+
+
+def _run_in_thread(func, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    return loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
+
+@app.get("/leads/stats")
+async def leads_stats(request: Request):
+    _check_auth(request)
+    return leads_db.count_by_status()
+
+
+@app.get("/leads/runs")
+async def leads_runs(request: Request):
+    _check_auth(request)
+    return {"runs": leads_db.list_runs(limit=50)}
+
+
+@app.post("/leads/search")
+async def leads_search(request: Request):
+    _check_auth(request)
+    data = await request.json()
+    branche = (data.get("branche") or "").strip()
+    ort = (data.get("ort") or "").strip()
+    try:
+        count = int(data.get("count") or 10)
+        radius_km = int(data.get("radius_km") or 15)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="count/radius_km muss Zahl sein")
+    if not branche or not ort:
+        raise HTTPException(status_code=400, detail="branche und ort sind pflicht")
+    count = max(1, min(count, 50))
+    radius_km = max(1, min(radius_km, 200))
+    try:
+        result = await _run_in_thread(leads_core.run_search, branche, ort, count, radius_km)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+@app.get("/leads/companies")
+async def leads_list(request: Request, status: str = "all",
+                     min_score: float = 0, search: str = ""):
+    _check_auth(request)
+    return {"companies": leads_db.list_companies(
+        status=status, min_score=min_score if min_score > 0 else None,
+        search=search or None,
+    )}
+
+
+@app.get("/leads/companies/{company_id}")
+async def leads_get(company_id: int, request: Request):
+    _check_auth(request)
+    full = leads_db.get_company_full(company_id)
+    if not full:
+        raise HTTPException(status_code=404, detail="Firma nicht gefunden")
+    return full
+
+
+@app.put("/leads/companies/{company_id}")
+async def leads_update(company_id: int, request: Request):
+    _check_auth(request)
+    data = await request.json()
+    if not leads_db.get_company(company_id):
+        raise HTTPException(status_code=404, detail="Firma nicht gefunden")
+    leads_db.update_company_fields(company_id, data)
+    return {"ok": True}
+
+
+@app.post("/leads/companies/{company_id}/analyze")
+async def leads_analyze(company_id: int, request: Request):
+    _check_auth(request)
+    try:
+        return await _run_in_thread(leads_core.analyze_company, company_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Analyze {company_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+@app.post("/leads/companies/{company_id}/research")
+async def leads_research(company_id: int, request: Request):
+    _check_auth(request)
+    try:
+        return await _run_in_thread(leads_core.research_company, company_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Research {company_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+@app.post("/leads/companies/{company_id}/draft-email")
+async def leads_draft(company_id: int, request: Request):
+    _check_auth(request)
+    data = await request.json()
+    stil = data.get("stil") or "formell"
+    sender = (data.get("sender_name") or "Kevin").strip()
+    try:
+        return await _run_in_thread(leads_core.draft_email, company_id, stil, sender)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Draft {company_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+@app.put("/leads/emails/{email_id}")
+async def leads_email_update(email_id: int, request: Request):
+    _check_auth(request)
+    data = await request.json()
+    if not leads_db.get_email(email_id):
+        raise HTTPException(status_code=404, detail="Mail nicht gefunden")
+    leads_db.update_email(email_id,
+                          subject=data.get("subject"),
+                          body_text=data.get("body_text"))
+    return {"ok": True}
+
+
+@app.post("/leads/companies/{company_id}/send")
+async def leads_send(company_id: int, request: Request):
+    _check_auth(request)
+    data = await request.json()
+    email_id = data.get("email_id")
+    if not email_id:
+        raise HTTPException(status_code=400, detail="email_id fehlt")
+    try:
+        return await _run_in_thread(leads_core.send_email, company_id, int(email_id))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Send {company_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)[:300])
+
+
+@app.delete("/leads/companies/{company_id}")
+async def leads_delete(company_id: int, request: Request):
+    _check_auth(request)
+    if not leads_core.delete_company(company_id):
+        raise HTTPException(status_code=404, detail="Firma nicht gefunden")
+    return {"ok": True}
+
+
+@app.get("/leads/companies/{company_id}/screenshot")
+async def leads_screenshot(company_id: int, request: Request):
+    _check_auth(request)
+    full = leads_db.get_company_full(company_id)
+    if not full:
+        raise HTTPException(status_code=404)
+    wa = full.get("website_analysis") or {}
+    raw_path = wa.get("screenshot_path")
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="Kein Screenshot")
+
+    # Screenshots dürfen NUR aus dem Screenshots-Verzeichnis geliefert werden.
+    # Auch wenn der Pfad aus der DB kommt — nicht vertrauen.
+    try:
+        resolved = _LeadPath(raw_path).resolve(strict=False)
+        resolved.relative_to(_LEADS_SCREENSHOTS_BASE)
+    except (ValueError, OSError):
+        logger.warning(f"Screenshot-Pfad-Abweisung für company {company_id}: {raw_path}")
+        raise HTTPException(status_code=403, detail="Pfad nicht erlaubt")
+
+    if not resolved.is_file():
+        raise HTTPException(status_code=404, detail="Screenshot-Datei nicht gefunden")
+    return FileResponse(str(resolved), media_type="image/png")
+
+
+# ── Wakeword Notifications ───────────────────────────────────────────────────
+
 @app.post("/wakeword")
 async def wakeword_event(request: Request):
     data = await request.json()
     event = data.get("event", "idle")
-    for ws in active_connections:
+    with _active_lock:
+        targets = list(active_connections)
+    for ws in targets:
         try:
             await ws.send_json({"type": "wakeword", "event": event, **data})
         except Exception:
@@ -117,17 +486,24 @@ async def wakeword_event(request: Request):
     return {"ok": True}
 
 
+# ---------------------------------------------------------------------------
+# WebSocket
+# ---------------------------------------------------------------------------
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    active_connections.append(websocket)
+    with _active_lock:
+        active_connections.append(websocket)
 
+    soul = _refresh_prompt_if_changed()
     history = [{"role": "system", "content": soul}]
     history.extend(load_recent_context(n=3))
     logger.info(f"Session gestartet, {len(history)-1} Kontext-Messages geladen")
 
     async def process_text(text: str, use_tts: bool = False):
-        reload_if_changed()
+        # System-Prompt aktualisieren falls SOUL/USER/MEMORY geändert
+        history[0] = {"role": "system", "content": _refresh_prompt_if_changed()}
         history.append({"role": "user", "content": text})
 
         loop = asyncio.get_running_loop()
@@ -139,69 +515,104 @@ async def websocket_endpoint(websocket: WebSocket):
         log_conversation(text, response)
         history.append({"role": "assistant", "content": response})
 
+        # History trimmen: System behalten, max 20 Nachrichten danach
         if len(history) > 21:
             history[1:] = history[-20:]
 
         await websocket.send_json({"type": "message", "text": response})
         if use_tts:
-            await loop.run_in_executor(
-                None, lambda: speak(clean_for_tts(response))
-            )
+            await loop.run_in_executor(None, lambda: speak(clean_for_tts(response)))
 
     try:
         while True:
             raw = await websocket.receive_text()
             try:
                 data = json.loads(raw)
-            except Exception as e:
+            except ValueError as e:
                 logger.warning(f"JSON Fehler: {e}")
                 continue
 
             logger.debug(f"Empfangen: type={data.get('type')}")
 
-            if data.get('type') == 'text':
+            if data.get("type") == "text":
                 try:
-                    await process_text(data['text'], use_tts=False)
+                    await process_text(data["text"], use_tts=False)
                 except Exception as e:
                     logger.error(f"FEHLER in process_text: {e}", exc_info=True)
                     try:
-                        await websocket.send_json({"type": "message", "text": f"Interner Fehler: {e}"})
+                        await websocket.send_json(
+                            {"type": "message", "text": f"Interner Fehler: {e}"}
+                        )
                     except Exception:
                         pass
 
-            elif data.get('type') == 'audio':
+            elif data.get("type") == "audio":
+                tmp_path = None
+                wav_path = None
                 try:
                     import tempfile
-                    audio_bytes = base64.b64decode(data['data'])
-                    with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as f:
+                    audio_bytes = base64.b64decode(data["data"])
+                    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
                         f.write(audio_bytes)
                         tmp_path = f.name
-                    wav_path = tmp_path.replace('.webm', '.wav')
+                    # WAV-Pfad via tempfile.mktemp statt String-Replace
+                    wav_path = tempfile.mktemp(suffix=".wav")
                     try:
-                        # Fix #3: subprocess.run statt os.system
                         subprocess.run(
-                            ['ffmpeg', '-i', tmp_path, '-ar', '16000', '-ac', '1',
-                             wav_path, '-y', '-loglevel', 'quiet'],
-                            check=True, timeout=30
+                            ["ffmpeg", "-i", tmp_path, "-ar", "16000", "-ac", "1",
+                             wav_path, "-y", "-loglevel", "quiet"],
+                            check=True, timeout=30,
                         )
-                        segments, _ = get_whisper().transcribe(wav_path, language="de", beam_size=1)
-                        text = " ".join(s.text for s in segments).strip()
-                    finally:
-                        os.unlink(tmp_path)
-                        if os.path.exists(wav_path):
-                            os.unlink(wav_path)
+                    except FileNotFoundError:
+                        logger.error("ffmpeg nicht installiert")
+                        await websocket.send_json({
+                            "type": "message",
+                            "text": "ffmpeg ist auf diesem System nicht installiert.",
+                        })
+                        continue
+                    except subprocess.TimeoutExpired:
+                        logger.warning("ffmpeg timeout")
+                        await websocket.send_json({
+                            "type": "message",
+                            "text": "Audio-Konvertierung hat zu lange gedauert.",
+                        })
+                        continue
+                    except subprocess.CalledProcessError as e:
+                        logger.warning(f"ffmpeg fehlgeschlagen: {e}")
+                        await websocket.send_json({
+                            "type": "message",
+                            "text": "Audio konnte nicht verarbeitet werden.",
+                        })
+                        continue
+
+                    segments, _ = get_whisper().transcribe(
+                        wav_path, language="de", beam_size=1
+                    )
+                    text = " ".join(s.text for s in segments).strip()
+
                     if text:
                         await websocket.send_json({"type": "transcript", "text": text})
                         await process_text(text, use_tts=True)
                     else:
-                        await websocket.send_json({"type": "message", "text": "Ich habe dich nicht verstanden, Kevin."})
+                        await websocket.send_json({
+                            "type": "message",
+                            "text": "Ich habe dich nicht verstanden, Kevin.",
+                        })
                 except Exception as e:
                     logger.error(f"FEHLER bei Audio: {e}", exc_info=True)
+                finally:
+                    for p in (tmp_path, wav_path):
+                        if p and os.path.exists(p):
+                            try:
+                                os.unlink(p)
+                            except OSError:
+                                pass
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.error(f"KRITISCHER FEHLER: {e}", exc_info=True)
     finally:
-        if websocket in active_connections:
-            active_connections.remove(websocket)
+        with _active_lock:
+            if websocket in active_connections:
+                active_connections.remove(websocket)
