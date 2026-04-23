@@ -13,3 +13,13 @@
 - Kevin kann Fehler machen und korrigiert sie direkt
 - Kevin möchte an bestimmte Ereignisse erinnert werden
 - Kevin will Chanti verbessern
+- Kevin möchte Chanti zu seiner ultimativen Begleiterin machen
+- Abfrage zum Agent-Loop gestartet
+- Kevin arbeitet an CrazyFamilyLP mit seinem Schwager
+- Kevin interessiert sich für analytische Psychologie
+- Nina hat Geburtstag
+- Nina hat am 15. April Geburtstag
+- Nina hat Geburtstag, aber ich habe keinen Eintrag gefunden
+- Kevin hat am 30. April Geburtstag
+- Rüdiger Gamm ist eine unbekannte Person
+- Rüdiger Gamm hat von seinem Vater mathematische Fähigkeiten gelernt

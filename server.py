@@ -139,6 +139,30 @@ def _load_chat_html():
     return (Path(__file__).parent / "chat.html").read_text(encoding="utf-8")
 
 
+def _trim_image_messages(history: list[dict], keep_last: int = 4) -> None:
+    """Base64-Bilder aus älteren User-Messages entfernen, damit das
+    Context-Fenster nicht explodiert. Die letzten `keep_last` Multimodal-
+    Messages bleiben unangetastet — die davor werden in reinen Text
+    umgewandelt (Platzhalter '[früheres Bild]').
+    """
+    # Indizes aller Multimodal-User-Messages sammeln
+    idxs = [
+        i for i, m in enumerate(history)
+        if m.get("role") == "user" and isinstance(m.get("content"), list)
+    ]
+    if len(idxs) <= keep_last:
+        return
+    to_trim = idxs[:-keep_last]
+    for i in to_trim:
+        parts = history[i]["content"]
+        text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
+        text = " ".join(t for t in text_parts if t).strip()
+        history[i]["content"] = (
+            f"[früheres Bild entfernt] {text}".strip()
+            if text else "[früheres Bild entfernt]"
+        )
+
+
 # ---------------------------------------------------------------------------
 # FastAPI Lifespan (ersetzt @app.on_event)
 # ---------------------------------------------------------------------------
@@ -158,6 +182,11 @@ async def lifespan(app: FastAPI):
     # Kalender-Reminder-Task
     rem_task = asyncio.create_task(reminder_startup_task())
     logger.info("Kalender-Reminder-Task eingeplant")
+
+    # Daily-Pulse-Task: täglicher proaktiver Check (Kalender, Inaktivität, News)
+    from daily_pulse import daily_pulse_task
+    pulse_task = asyncio.create_task(daily_pulse_task())
+    logger.info("Daily-Pulse-Task eingeplant")
 
     # Screenshot-Cleanup einmalig
     try:
@@ -190,7 +219,8 @@ async def lifespan(app: FastAPI):
         # SHUTDOWN
         hot_task.cancel()
         rem_task.cancel()
-        for t in (hot_task, rem_task):
+        pulse_task.cancel()
+        for t in (hot_task, rem_task, pulse_task):
             try:
                 await t
             except (asyncio.CancelledError, Exception):
@@ -501,10 +531,24 @@ async def websocket_endpoint(websocket: WebSocket):
     history.extend(load_recent_context(n=3))
     logger.info(f"Session gestartet, {len(history)-1} Kontext-Messages geladen")
 
-    async def process_text(text: str, use_tts: bool = False):
+    async def process_text(text: str, use_tts: bool = False,
+                           image_data_url: str | None = None):
         # System-Prompt aktualisieren falls SOUL/USER/MEMORY geändert
         history[0] = {"role": "system", "content": _refresh_prompt_if_changed()}
-        history.append({"role": "user", "content": text})
+
+        if image_data_url:
+            # Groq-Multimodal-Format (OpenAI-kompatibel).
+            # Text darf leer sein — dann setzt Modell eigenen Default.
+            user_content = [
+                {"type": "text", "text": text or "Was siehst du auf diesem Bild?"},
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+            ]
+            history.append({"role": "user", "content": user_content})
+            # Für Log/Anzeige: Kurzform ohne Base64
+            log_user_text = f"[Bild angehängt] {text}".strip()
+        else:
+            history.append({"role": "user", "content": text})
+            log_user_text = text
 
         loop = asyncio.get_running_loop()
         response_raw = await loop.run_in_executor(
@@ -512,12 +556,15 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         response = parse_and_execute_commands(response_raw)
-        log_conversation(text, response)
+        log_conversation(log_user_text, response)
         history.append({"role": "assistant", "content": response})
 
-        # History trimmen: System behalten, max 20 Nachrichten danach
+        # History trimmen: System behalten, max 20 Nachrichten danach.
+        # Wichtig: Bilder sind groß — bei Multimodal-Messages behalten wir
+        # nur die letzten 4, um das Context-Fenster nicht zu sprengen.
         if len(history) > 21:
             history[1:] = history[-20:]
+        _trim_image_messages(history, keep_last=4)
 
         await websocket.send_json({"type": "message", "text": response})
         if use_tts:
@@ -539,6 +586,37 @@ async def websocket_endpoint(websocket: WebSocket):
                     await process_text(data["text"], use_tts=False)
                 except Exception as e:
                     logger.error(f"FEHLER in process_text: {e}", exc_info=True)
+                    try:
+                        await websocket.send_json(
+                            {"type": "message", "text": f"Interner Fehler: {e}"}
+                        )
+                    except Exception:
+                        pass
+
+            elif data.get("type") == "text_with_image":
+                try:
+                    img = data.get("image", "")
+                    # Nur data:image/...;base64,... akzeptieren
+                    if not isinstance(img, str) or not img.startswith("data:image/"):
+                        await websocket.send_json({
+                            "type": "message",
+                            "text": "Ungültiges Bildformat.",
+                        })
+                        continue
+                    # Hartes Limit serverseitig: ~6 MB Base64 ≈ 4.5 MB Binary
+                    if len(img) > 6 * 1024 * 1024:
+                        await websocket.send_json({
+                            "type": "message",
+                            "text": "Bild zu groß (max ~4 MB).",
+                        })
+                        continue
+                    await process_text(
+                        data.get("text", "") or "",
+                        use_tts=False,
+                        image_data_url=img,
+                    )
+                except Exception as e:
+                    logger.error(f"FEHLER in process_text (image): {e}", exc_info=True)
                     try:
                         await websocket.send_json(
                             {"type": "message", "text": f"Interner Fehler: {e}"}

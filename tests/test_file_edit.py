@@ -95,3 +95,98 @@ def test_empty_path_handled(fe, tmp_home):
 
 def test_write_without_content_errors(fe, tmp_home):
     assert "Fehler" in fe.execute("write", "x.md", None)
+
+
+def test_workspace_path_blocked_in_file_edit(fe, tmp_home):
+    """file_edit darf nicht in workspace/ schreiben — das gehört workspace_edit."""
+    result = fe.execute("write", "workspace/foo.py", "print('x')")
+    assert "verweigert" in result.lower()
+    assert not (tmp_home / "workspace" / "foo.py").exists()
+
+
+def test_workspace_read_blocked_in_file_edit(fe, tmp_home):
+    # Auch read wird geblockt — konsistente Trennung.
+    (tmp_home / "workspace").mkdir(exist_ok=True)
+    (tmp_home / "workspace" / "secret.py").write_text("secret")
+    result = fe.execute("read", "workspace/secret.py")
+    assert "verweigert" in result.lower()
+
+
+def test_tilde_prefix_handled(fe, tmp_home):
+    # ~/chanti/foo.md soll als foo.md geschrieben werden
+    result = fe.execute("write", "~/chanti/foo.md", "hi")
+    assert "gespeichert" in result
+    assert (tmp_home / "foo.md").read_text() == "hi"
+
+
+def test_tilde_only_rejected(fe, tmp_home):
+    result = fe.execute("read", "~/other/passwd")
+    assert "nicht expandiert" in result.lower() or "verweigert" in result.lower()
+
+
+def test_list_hides_workspace(fe, tmp_home):
+    ws = tmp_home / "workspace"
+    ws.mkdir()
+    (ws / "hello.py").write_text("print('hi')")
+    (tmp_home / "SOUL.md").write_text("identity")
+    listing = fe.execute("list")
+    assert "SOUL.md" in listing
+    assert "workspace" not in listing
+    assert "hello.py" not in listing
+
+
+# ---------- str_replace ----------
+
+def test_str_replace_basic(fe, tmp_home):
+    fe.execute("write", "note.md", "hallo welt\nbye")
+    out = fe.execute("str_replace", "note.md", old_str="welt", new_str="mond")
+    assert "gepatcht" in out
+    assert fe.execute("read", "note.md") == "hallo mond\nbye"
+
+
+def test_str_replace_missing_old_str(fe, tmp_home):
+    fe.execute("write", "note.md", "foo")
+    out = fe.execute("str_replace", "note.md", old_str="nicht drin", new_str="x")
+    assert "nicht in der Datei" in out
+
+
+def test_str_replace_ambiguous(fe, tmp_home):
+    fe.execute("write", "note.md", "foo\nfoo\nfoo")
+    out = fe.execute("str_replace", "note.md", old_str="foo", new_str="bar")
+    assert "eindeutig" in out.lower() or "3-mal" in out
+
+
+def test_str_replace_empty_old_str_rejected(fe, tmp_home):
+    fe.execute("write", "note.md", "hi")
+    out = fe.execute("str_replace", "note.md", old_str="", new_str="x")
+    assert "Fehler" in out
+
+
+def test_str_replace_file_not_found(fe, tmp_home):
+    out = fe.execute("str_replace", "nope.md", old_str="a", new_str="b")
+    assert "nicht gefunden" in out.lower()
+
+
+def test_str_replace_empty_new_str_deletes(fe, tmp_home):
+    fe.execute("write", "note.md", "prefix-XYZ-suffix")
+    out = fe.execute("str_replace", "note.md", old_str="XYZ-", new_str="")
+    assert "gepatcht" in out
+    assert fe.execute("read", "note.md") == "prefix-suffix"
+
+
+def test_str_replace_creates_backup(fe, tmp_home):
+    fe.execute("write", "note.md", "a b c")
+    fe.execute("str_replace", "note.md", old_str="b", new_str="B")
+    bak = tmp_home / "note.md.bak"
+    assert bak.exists()
+    assert bak.read_text() == "a b c"
+
+
+def test_str_replace_respects_workspace_block(fe, tmp_home):
+    """str_replace darf genau wie write nicht in workspace/ wirken."""
+    ws = tmp_home / "workspace"
+    ws.mkdir()
+    (ws / "foo.py").write_text("print('a')")
+    out = fe.execute("str_replace", "workspace/foo.py",
+                     old_str="a", new_str="b")
+    assert "verweigert" in out.lower()

@@ -51,17 +51,37 @@ def _safe_write(path: Path, content: str):
 
 # ── System-Prompt ─────────────────────────────────────────────────────────────
 
+def _read_tools_header() -> str:
+    """Liest aus TOOLS.md nur den Agent-relevanten Teil: alles bis einschließlich
+    'Anti-Patterns'. Danach kommt Home-Assistant / Blender / Kalender — deren
+    Infos stecken eh in den Tool-Descriptions, sie hier doppelt in den System-
+    Prompt zu stopfen kostet nur Tokens."""
+    text = _read(TOOLS_FILE)
+    if not text:
+        return ""
+    # Schneide bei der ersten H2-Überschrift die NICHT zu den Agent-Basics gehört.
+    # Unsere Agent-Abschnitte: Entscheidung, Deine zwei Datei-Tools, Workflow-Muster, Anti-Patterns.
+    # Erste "fremde" H2 ist "## Home Assistant".
+    marker = "\n## Home Assistant"
+    idx = text.find(marker)
+    return text[:idx].rstrip() if idx != -1 else text
+
+
 def load_system_prompt() -> str:
-    """Kompakter System-Prompt: SOUL + USER-Fakten + MEMORY-Ereignisse.
-    IDENTITY und TOOLS werden weggelassen um Token zu sparen."""
+    """Kompakter System-Prompt: SOUL + USER-Fakten + MEMORY-Ereignisse +
+    Agent-Regeln aus TOOLS.md. IDENTITY wird weggelassen um Tokens zu sparen —
+    das steckt in den Tool-Definitions selbst."""
     from datetime import datetime
     today = datetime.now().strftime("%A, %d. %B %Y")
 
     soul   = f"Heute ist {today}.\n\n" + _read(SOUL_FILE)
     user   = _read(USER_FILE)
     memory = _read(MEMORY_FILE)
+    tools  = _read_tools_header()
 
     parts = [soul]
+    if tools:
+        parts.append(tools)
     if user:
         parts.append(f"## Was du über Kevin weißt\n{user}")
     if memory:

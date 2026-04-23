@@ -62,8 +62,14 @@ def _normalize_url(url: str) -> str:
     url = url.strip()
     if not url:
         return ""
+    # Kein Schema? Dann http:// voranstellen — NICHT https.
+    # Wenn die Seite https unterstützt, leitet der Server selbst um und wir
+    # sehen das an der finalen URL. Wenn wir blind https erzwingen, täuschen
+    # wir uns selbst: Seiten ohne HTTPS werfen dann einfach Connection-Errors,
+    # obwohl sie unter http erreichbar wären — und Seiten MIT HTTPS werden
+    # als "has_ssl" markiert ohne dass wir's verifiziert haben.
     if not url.startswith(("http://", "https://")):
-        url = "https://" + url
+        url = "http://" + url
     return url
 
 
@@ -138,6 +144,12 @@ def _analyze_playwright(url: str, company_id: int, take_screenshot: bool) -> dic
                 except PWTimeout:
                     pass
 
+                # has_ssl an der FINALEN URL nach Redirects prüfen, nicht an der
+                # eingegebenen. Sonst wird 'http://example.com' → Auto-Redirect
+                # auf https fälschlich als "kein HTTPS" gemeldet.
+                final_url = page.url or url
+                has_ssl = final_url.startswith("https://")
+
                 title = (page.title() or "").strip()
                 html = page.content()
                 text = page.evaluate("""() => {
@@ -155,7 +167,6 @@ def _analyze_playwright(url: str, company_id: int, take_screenshot: bool) -> dic
                     ".some(i => i.naturalWidth > 50)"))
                 has_nav = bool(page.evaluate(
                     "() => !!document.querySelector('nav, [role=\"navigation\"], header')"))
-                has_ssl = url.startswith("https://")
 
                 platform = _detect_platform(html)
                 under_construction = _is_under_construction(text, word_count)

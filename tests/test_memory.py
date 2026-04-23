@@ -128,3 +128,38 @@ def test_concurrent_log_writes_not_corrupted(m):
     log = (m.LOG_DIR / f"{date.today().isoformat()}.md").read_text()
     kevin_lines = [l for l in log.splitlines() if l.startswith("**Kevin:**")]
     assert len(kevin_lines) == 100
+
+
+# ---------- TOOLS.md in System-Prompt ----------
+
+def test_system_prompt_includes_tools_header(m, tmp_home):
+    (tmp_home / "SOUL.md").write_text("Ich bin Chanti.")
+    (tmp_home / "TOOLS.md").write_text(
+        "# TOOLS\n\n"
+        "## Entscheidung: welches Tool?\n"
+        "A oder B.\n\n"
+        "## Anti-Patterns\n"
+        "Nicht drei mal.\n\n"
+        "## Home Assistant\n"
+        "Lampen an/aus.\n"
+    )
+    prompt = m.load_system_prompt()
+    # Agent-relevanter Teil drin
+    assert "Entscheidung" in prompt
+    assert "Anti-Patterns" in prompt
+    # Home-Assistant-Abschnitt NICHT drin (spart Tokens)
+    assert "Home Assistant" not in prompt
+
+
+def test_system_prompt_without_tools_md_still_works(m, tmp_home):
+    (tmp_home / "SOUL.md").write_text("Ich bin Chanti.")
+    prompt = m.load_system_prompt()
+    assert "Chanti" in prompt
+
+
+def test_tools_header_without_home_assistant_marker(m, tmp_home):
+    """Wenn TOOLS.md keinen Home-Assistant-Abschnitt hat, wird alles übernommen."""
+    (tmp_home / "SOUL.md").write_text("soul")
+    (tmp_home / "TOOLS.md").write_text("# TOOLS\nNur Agent-Infos, nichts sonst.")
+    prompt = m.load_system_prompt()
+    assert "Nur Agent-Infos" in prompt

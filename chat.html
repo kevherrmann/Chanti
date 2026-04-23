@@ -391,6 +391,74 @@
         #send:disabled:hover { color: var(--green-dim); box-shadow: none; }
         #send:disabled::before { transform: translateX(-100%); }
 
+        /* ── Image Attach Button & Preview ── */
+        #attach-btn {
+            background: transparent;
+            border: 1px solid var(--green-dim);
+            color: var(--green);
+            font-size: 1rem;
+            padding: 6px 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        #attach-btn:hover {
+            border-color: var(--green);
+            box-shadow: 0 0 8px var(--green);
+        }
+        #attach-btn.has-image {
+            border-color: var(--green);
+            background: rgba(0,255,65,0.12);
+            box-shadow: 0 0 8px var(--green);
+        }
+
+        #image-preview-bar {
+            padding: 10px 24px 10px 44px;
+            background: var(--bg2);
+            border-top: 1px solid var(--green-dim);
+            flex-shrink: 0;
+            position: relative;
+        }
+        .img-preview-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 10px;
+            border: 1px solid var(--green-dim);
+            background: rgba(0,255,65,0.04);
+        }
+        .img-preview-item img {
+            height: 48px;
+            width: 48px;
+            object-fit: cover;
+            border: 1px solid var(--green-dim);
+        }
+        .img-preview-item .img-info {
+            font-size: 0.68rem;
+            color: var(--green-dim);
+            letter-spacing: 1px;
+        }
+        .img-preview-remove {
+            background: transparent;
+            border: 1px solid rgba(255,51,51,0.3);
+            color: var(--red);
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            cursor: pointer;
+        }
+        .img-preview-remove:hover {
+            background: var(--red);
+            color: #000;
+        }
+
+        .msg img.msg-image {
+            max-width: 100%;
+            max-height: 320px;
+            margin-top: 6px;
+            border: 1px solid var(--green-dim);
+            display: block;
+        }
+
         #statusbar {
             position: absolute;
             right: 24px;
@@ -809,10 +877,14 @@
 
     <div id="chat"></div>
 
+    <div id="image-preview-bar" style="display:none;"></div>
+
     <div id="inputarea">
         <span id="prompt-sym">&gt;</span>
         <span id="statusbar">OFFLINE</span>
         <input id="input" type="text" placeholder="EINGABE_" autocomplete="off"/>
+        <input id="image-input" type="file" accept="image/*" style="display:none"/>
+        <button id="attach-btn" title="Bild anhängen" type="button">📎</button>
         <button id="send" disabled>EXEC</button>
     </div>
 
@@ -1081,7 +1153,7 @@
 
         function sanitize(h) { return typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(h) : h; }
 
-        function addMsg(role, text) {
+        function addMsg(role, text, imageDataUrl) {
             const div  = document.createElement('div');
             div.className = `msg ${role}`;
             const time = new Date().toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
@@ -1089,8 +1161,14 @@
                 const rendered = typeof marked !== 'undefined' ? marked.parse(text) : text;
                 div.innerHTML = `<div class="msg-header"><span class="name">// CHANTI</span><span class="msg-time">${time}</span></div>${sanitize(rendered)}`;
             } else {
-                const esc = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-                div.innerHTML = `<div class="msg-header"><span class="name">// YOU</span><span class="msg-time">${time}</span></div><span>${esc}</span>`;
+                const esc = (text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                let imgHtml = '';
+                if (imageDataUrl) {
+                    // dataUrl ist vom Client selbst erzeugt — safe als src
+                    imgHtml = `<img class="msg-image" src="${imageDataUrl}" alt="angehängtes Bild"/>`;
+                }
+                const textHtml = esc ? `<span>${esc}</span>` : '';
+                div.innerHTML = `<div class="msg-header"><span class="name">// YOU</span><span class="msg-time">${time}</span></div>${textHtml}${imgHtml}`;
             }
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
@@ -1107,16 +1185,116 @@
 
         function sendMsg() {
             const text = input.value.trim();
-            if (!text || send.disabled) return;
-            addMsg('user', text);
-            addThinking();
-            ws.send(JSON.stringify({type:'text', text}));
+            if ((!text && !pendingImage) || send.disabled) return;
+            if (pendingImage) {
+                addMsg('user', text, pendingImage.dataUrl);
+                addThinking();
+                ws.send(JSON.stringify({
+                    type: 'text_with_image',
+                    text: text,
+                    image: pendingImage.dataUrl
+                }));
+                clearPendingImage();
+            } else {
+                addMsg('user', text);
+                addThinking();
+                ws.send(JSON.stringify({type:'text', text}));
+            }
             input.value   = '';
             send.disabled = true;
         }
 
         send.onclick = sendMsg;
         input.onkeydown = (e) => { if (e.key === 'Enter') sendMsg(); };
+
+        // ── Image Attach ─────────────────────────────
+        const imageInput = document.getElementById('image-input');
+        const attachBtn  = document.getElementById('attach-btn');
+        const previewBar = document.getElementById('image-preview-bar');
+        let pendingImage = null;  // { dataUrl, name }
+
+        // Max ~4 MB nach Resize (Groq-Limit). Wir resizen auf max 1568px Kante.
+        const MAX_IMAGE_EDGE = 1568;
+        const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+        attachBtn.onclick = () => imageInput.click();
+
+        imageInput.onchange = async () => {
+            const file = imageInput.files[0];
+            if (!file) return;
+            try {
+                const dataUrl = await resizeImage(file, MAX_IMAGE_EDGE);
+                // Base64-Länge → Byte-Größe grob
+                const b64 = dataUrl.split(',')[1] || '';
+                const bytes = Math.floor(b64.length * 0.75);
+                if (bytes > MAX_IMAGE_BYTES) {
+                    alert('Bild zu groß (auch nach Resize). Max ~4 MB.');
+                    imageInput.value = '';
+                    return;
+                }
+                pendingImage = { dataUrl, name: file.name };
+                renderPreview();
+            } catch (err) {
+                console.error(err);
+                alert('Bild konnte nicht verarbeitet werden.');
+            }
+            imageInput.value = '';  // erlaubt selbes File nochmal
+        };
+
+        function clearPendingImage() {
+            pendingImage = null;
+            previewBar.innerHTML = '';
+            previewBar.style.display = 'none';
+            attachBtn.classList.remove('has-image');
+        }
+
+        function renderPreview() {
+            previewBar.innerHTML = '';
+            if (!pendingImage) { previewBar.style.display = 'none'; return; }
+            const item = document.createElement('div');
+            item.className = 'img-preview-item';
+            const img = document.createElement('img');
+            img.src = pendingImage.dataUrl;
+            const info = document.createElement('span');
+            info.className = 'img-info';
+            info.textContent = '// ' + pendingImage.name.toUpperCase();
+            const rm = document.createElement('button');
+            rm.className = 'img-preview-remove';
+            rm.textContent = 'X';
+            rm.onclick = clearPendingImage;
+            item.appendChild(img);
+            item.appendChild(info);
+            item.appendChild(rm);
+            previewBar.appendChild(item);
+            previewBar.style.display = 'block';
+            attachBtn.classList.add('has-image');
+        }
+
+        function resizeImage(file, maxEdge) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onerror = () => reject(new Error('read failed'));
+                reader.onload = () => {
+                    const img = new Image();
+                    img.onerror = () => reject(new Error('decode failed'));
+                    img.onload = () => {
+                        let { width, height } = img;
+                        const scale = Math.min(1, maxEdge / Math.max(width, height));
+                        const w = Math.round(width * scale);
+                        const h = Math.round(height * scale);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w; canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        // JPEG für kleinere Dateigröße, außer PNG mit Transparenz —
+                        // für KI-Analyse reicht JPEG q=0.85.
+                        resolve(canvas.toDataURL('image/jpeg', 0.85));
+                    };
+                    img.src = reader.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
 
         // ── Tools-Menü & Legend ──────────────────────
         function toggleTools(e) {

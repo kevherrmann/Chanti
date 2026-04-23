@@ -14,7 +14,17 @@ logger = logging.getLogger("chanti")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Tuning
-MAX_TOOL_ROUNDS = 8
+MAX_TOOL_ROUNDS = 12
+# Wenn dieselbe (tool, args)-Kombi so oft hintereinander vom Modell vorgeschlagen
+# wird, brechen wir ab — das Modell ist im Kreis. 3 reicht: 1x probieren,
+# 1x nach Fehler-Hinweis nochmal probieren, beim 3. Mal ist klar dass der
+# Fehlermeldungs-Text nicht hilft.
+LOOP_DETECTION_REPEATS = 3
+# Fuzzy-Variante: wenn dasselbe Tool N× hintereinander aufgerufen wird
+# (egal mit welchen Args), ist das Modell wahrscheinlich im Trial-and-Error-
+# Loop. 5 lässt legitime Workflows durch (z.B. 5× workspace_edit für
+# verschiedene Dateien) aber fängt die 8×terminal-Stolperfallen ab.
+LOOP_DETECTION_SAME_TOOL = 5
 REQUEST_TIMEOUT = 30
 MAX_RETRIES_ON_429 = 3
 MAX_RETRIES_ON_5XX = 2
@@ -145,6 +155,48 @@ def _extract_content(resp_json: dict) -> str:
         return ""
 
 
+def _tool_signature(fn_name: str, fn_args: dict) -> str:
+    """Signatur für Loop-Detection. Gleiche Signatur = gleicher Aufruf."""
+    try:
+        args_str = json.dumps(fn_args, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        args_str = repr(fn_args)
+    return f"{fn_name}::{args_str}"
+
+
+def _sanitize_for_no_tools(messages: list[dict]) -> list[dict]:
+    """Macht eine Message-Liste kompatibel zu einem Request OHNE tools.
+
+    - assistant-Messages mit `tool_calls` werden in reinen Text umgewandelt
+      (als Zusammenfassung was Chanti gemacht hat).
+    - role=tool Messages werden in user-Messages mit Präfix umgewandelt,
+      damit das Modell sie noch als Kontext sieht aber keine tool_call_id
+      mehr gematcht werden muss.
+    """
+    out: list[dict] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "assistant" and msg.get("tool_calls"):
+            # Tool-Calls in Text zusammenfassen, Content falls da anhängen.
+            calls = msg.get("tool_calls") or []
+            names = [tc.get("function", {}).get("name", "?") for tc in calls]
+            summary = f"[Intern: Tools aufgerufen: {', '.join(names)}]"
+            existing = (msg.get("content") or "").strip()
+            text = (existing + "\n" + summary).strip() if existing else summary
+            out.append({"role": "assistant", "content": text})
+        elif role == "tool":
+            name = msg.get("name", "tool")
+            content = msg.get("content", "")
+            out.append({
+                "role": "user",
+                "content": f"[Ergebnis von {name}]: {content}",
+            })
+        else:
+            # system / user / normale assistant-Messages unverändert
+            out.append(msg)
+    return out
+
+
 def chat(messages: list[dict], tools: list[dict] = None,
          executors: dict = None, max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
     local_messages = list(messages)
@@ -164,6 +216,12 @@ def chat(messages: list[dict], tools: list[dict] = None,
         payload["parallel_tool_calls"] = False
 
     logger.info(f"Modell: {model}")
+
+    # Zähler für Wiederholungen derselben Tool-Signatur.
+    repeat_counts: dict[str, int] = {}
+    # Zähler für „selbes Tool mehrfach in Folge" (fuzzy Loop).
+    last_tool_name: str | None = None
+    consecutive_same_tool: int = 0
 
     for round_num in range(MAX_TOOL_ROUNDS):
         resp = _request_with_retries(payload)
@@ -186,7 +244,7 @@ def chat(messages: list[dict], tools: list[dict] = None,
                     logger.info("Fallback erfolgreich, sende Ergebnis zurück")
                     fallback_resp = _request_with_retries({
                         "model": GROQ_MODEL,
-                        "messages": list(messages) + [{
+                        "messages": list(local_messages) + [{
                             "role": "user",
                             "content": (f"[Tool-Ergebnis]: {tool_result}\n\n"
                                         "Bitte antworte basierend auf diesem Ergebnis."),
@@ -197,11 +255,16 @@ def chat(messages: list[dict], tools: list[dict] = None,
                     if fallback_resp is not None and fallback_resp.ok:
                         return _extract_content(fallback_resp.json())
 
-            # Fallback: Nochmal ohne Tools versuchen
+            # Fallback: Nochmal ohne Tools versuchen — aber mit dem AKTUELLEN
+            # Stand der Konversation (inkl. bereits erfolgter Tool-Calls und
+            # deren Ergebnisse). Sonst gehen erfolgreiche Schritte dieses Turns
+            # verloren, z.B. wenn str_replace schon gelaufen ist und dann erst
+            # die Antwort-Generierung hakt.
             logger.info("Versuche ohne Tools…")
+            sanitized = _sanitize_for_no_tools(local_messages)
             fallback_resp = _request_with_retries({
                 "model": GROQ_MODEL,
-                "messages": list(messages),
+                "messages": sanitized,
                 "temperature": 0.7,
                 "max_tokens": max_tokens,
             })
@@ -247,6 +310,56 @@ def chat(messages: list[dict], tools: list[dict] = None,
 
             logger.info(f"Tool-Call #{round_num+1}: {fn_name}({_redact(fn_args)})")
 
+            # Fuzzy Loop-Detection: selbes Tool mehrfach in Folge.
+            if fn_name == last_tool_name:
+                consecutive_same_tool += 1
+            else:
+                consecutive_same_tool = 1
+                last_tool_name = fn_name
+            if consecutive_same_tool >= LOOP_DETECTION_SAME_TOOL:
+                logger.warning(
+                    f"Loop erkannt: {fn_name} {consecutive_same_tool}x in Folge "
+                    f"— breche ab"
+                )
+                local_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "name": fn_name,
+                    "content": (
+                        f"Tool-Aufruf abgebrochen: du hast {fn_name} "
+                        f"{consecutive_same_tool} mal in Folge aufgerufen. "
+                        f"Wahrscheinlich ist der Ansatz falsch. Probiere ein "
+                        f"anderes Tool oder sag dem User was nicht geht."
+                    ),
+                })
+                return _final_answer_without_tools(local_messages, max_tokens)
+
+            # Exakte Loop-Detection: wird dieselbe (name, args)-Kombi wiederholt?
+            sig = _tool_signature(fn_name, fn_args) if args_ok else None
+            if sig is not None:
+                repeat_counts[sig] = repeat_counts.get(sig, 0) + 1
+                if repeat_counts[sig] >= LOOP_DETECTION_REPEATS:
+                    logger.warning(
+                        f"Loop erkannt: {fn_name} mit identischen Args "
+                        f"{repeat_counts[sig]}x aufgerufen — breche ab"
+                    )
+                    # Tool-Result künstlich einfügen, damit die tool_call_id
+                    # bedient ist und das Modell eine saubere Abschluss-Runde
+                    # ohne Tools bekommt.
+                    local_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "name": fn_name,
+                        "content": (
+                            f"Tool-Aufruf abgebrochen: du hast {fn_name} "
+                            f"bereits {repeat_counts[sig]} mal mit identischen "
+                            f"Argumenten aufgerufen. Der Ansatz funktioniert "
+                            f"offensichtlich nicht. Versuche etwas anderes "
+                            f"oder sag dem User direkt, dass es nicht klappt."
+                        ),
+                    })
+                    return _final_answer_without_tools(local_messages, max_tokens)
+
             if not args_ok:
                 # Dem Modell klar sagen, dass die Args kaputt waren — dann
                 # generiert es in der nächsten Runde hoffentlich bessere.
@@ -279,6 +392,32 @@ def chat(messages: list[dict], tools: list[dict] = None,
             })
 
     logger.warning(f"MAX_TOOL_ROUNDS ({MAX_TOOL_ROUNDS}) erreicht")
+    return _final_answer_without_tools(local_messages, max_tokens)
+
+
+def _final_answer_without_tools(messages: list[dict], max_tokens: int) -> str:
+    """Gibt dem Modell eine letzte Chance, einen Abschluss-Satz zu formulieren
+    — ohne Tools, damit kein weiterer Tool-Call kommt. Wird aufgerufen wenn
+    der Loop abbricht (MAX_ROUNDS oder Loop-Detection)."""
+    hint = {
+        "role": "user",
+        "content": (
+            "Das Tool-Budget ist aufgebraucht. Fasse in 1–3 Sätzen zusammen "
+            "was du versucht hast und was davon hat/nicht geklappt. "
+            "Rufe KEIN weiteres Tool mehr auf."
+        ),
+    }
+    sanitized = _sanitize_for_no_tools(messages)
+    resp = _request_with_retries({
+        "model": GROQ_MODEL,  # Nicht-Tool-Modell, damit tool_calls unwahrscheinlich
+        "messages": sanitized + [hint],
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    })
+    if resp is not None and resp.ok:
+        content = _extract_content(resp.json())
+        if content:
+            return content
     return "Ich konnte die Anfrage nicht abschließen — zu viele Tool-Runden."
 
 

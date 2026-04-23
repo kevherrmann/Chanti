@@ -88,3 +88,53 @@ def test_extract_content_handles_missing_keys(llm):
     assert llm._extract_content({}) == ""
     assert llm._extract_content({"choices": []}) == ""
     assert llm._extract_content({"choices": [{"message": {}}]}) == ""
+
+
+# ---------- _sanitize_for_no_tools ----------
+
+def test_sanitize_converts_tool_role_to_user():
+    import llm
+    msgs = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "tool_calls": [
+            {"id": "c1", "function": {"name": "file_edit", "arguments": "{}"}}
+        ]},
+        {"role": "tool", "tool_call_id": "c1", "name": "file_edit",
+         "content": "Datei gepatcht: SOUL.md"},
+    ]
+    out = llm._sanitize_for_no_tools(msgs)
+    # system + user bleiben, assistant-with-tool-calls wird Text,
+    # tool-Rolle wird zu user
+    roles = [m["role"] for m in out]
+    assert roles == ["system", "user", "assistant", "user"]
+    # Tool-Names stehen in der Zusammenfassung
+    assert "file_edit" in out[2]["content"]
+    # Tool-Result ist als user-Message markiert
+    assert "Ergebnis von file_edit" in out[3]["content"]
+    assert "SOUL.md" in out[3]["content"]
+
+
+def test_sanitize_preserves_plain_messages():
+    import llm
+    msgs = [
+        {"role": "user", "content": "was geht"},
+        {"role": "assistant", "content": "alles gut"},
+    ]
+    out = llm._sanitize_for_no_tools(msgs)
+    assert out == msgs  # unverändert
+
+
+def test_sanitize_assistant_with_both_content_and_tool_calls():
+    import llm
+    msgs = [{
+        "role": "assistant",
+        "content": "Ich bearbeite das.",
+        "tool_calls": [{"id": "x", "function": {"name": "terminal", "arguments": "{}"}}]
+    }]
+    out = llm._sanitize_for_no_tools(msgs)
+    assert out[0]["role"] == "assistant"
+    assert "Ich bearbeite das." in out[0]["content"]
+    assert "terminal" in out[0]["content"]
+    # tool_calls-Feld ist weg
+    assert "tool_calls" not in out[0]

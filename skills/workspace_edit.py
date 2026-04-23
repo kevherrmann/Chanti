@@ -1,9 +1,9 @@
-"""Skill: Chantis eigene Konfigurations-Dateien lesen/schreiben (~/chanti/).
+"""Skill: Dateien im Workspace lesen/schreiben (~/chanti/workspace/).
 
-Dieses Tool ist für Chantis *Identität*: SOUL.md, USER.md, MEMORY.md,
-Skills, Config. Für Code den sie schreibt oder Experimente — nimm das
-workspace_edit-Tool. workspace/ ist in diesem Tool absichtlich gesperrt,
-damit Identitäts-Files und User-Code sauber getrennt bleiben.
+Für Code, Experimente, alles was Chanti für Tasks produziert oder testet.
+Arbeitet im selben Verzeichnis wie das `terminal`-Tool — damit sind
+Schreiben und Ausführen konsistent, ohne dass das Modell Pfade jonglieren
+muss. Für Chantis eigene Konfiguration (SOUL.md etc.) gibt es `file_edit`.
 """
 from pathlib import Path
 import logging
@@ -11,30 +11,37 @@ import os
 
 logger = logging.getLogger("chanti")
 
-BASE = Path.home() / "chanti"
-# Harte Obergrenze für einzelne Write-Calls: 2 MB.
-# Schützt vor Disk-Full-DoS durch Halluzinationen oder Prompt-Injection.
+BASE = Path.home() / "chanti" / "workspace"
 MAX_WRITE_BYTES = 2 * 1024 * 1024
-# Verzeichnisse die bei `list` ausgeschlossen werden.
-# workspace/ ist Domain von workspace_edit — hier nicht zeigen damit Chanti
-# die Trennung auch visuell versteht.
+# In workspace/ sind .venv / __pycache__ / node_modules besonders häufig
+# (Chanti installiert ja Pakete und läuft Tests). Listing ohne Müll zeigt
+# dem Modell nur den interessanten Code.
 LIST_EXCLUDE_DIRS = {
     ".venv", "venv", "__pycache__", "node_modules",
-    ".git", "data", "workspace",
+    ".git", "dist", "build", ".pytest_cache", ".mypy_cache",
 }
+# Erweiterte Extension-Liste — im Workspace landet auch JSON/YAML/TOML/Text.
+LIST_EXTENSIONS = (
+    ".py", ".md", ".sh", ".txt",
+    ".json", ".yaml", ".yml", ".toml",
+    ".js", ".ts", ".jsx", ".tsx",
+    ".html", ".css",
+)
 
 TOOL_DEFINITION = {
     "type": "function",
     "function": {
-        "name": "file_edit",
+        "name": "workspace_edit",
         "description": (
-            "Liest/schreibt Chantis eigene Konfigurationsdateien in ~/chanti/ "
-            "(SOUL.md, USER.md, MEMORY.md, IDENTITY.md, TOOLS.md, skills/*.py, ...). "
-            "NICHT für Code den du schreibst oder testest — dafür gibt es `workspace_edit`. "
-            "Pfade sind relativ zu ~/chanti/, z.B. 'SOUL.md' oder 'skills/web_browse.py'. "
-            "Pfade die mit 'workspace/' beginnen werden abgelehnt.\n\n"
+            "Liest/schreibt Dateien im Workspace (~/chanti/workspace/) — "
+            "dort wo du Code schreibst, testest und ausführst. "
+            "Arbeitet im selben Verzeichnis wie das `terminal`-Tool: "
+            "was du hier schreibst kannst du direkt mit terminal ausführen "
+            "(z.B. `python3 script.py`). "
+            "NICHT für Chantis eigene Config (SOUL.md etc.) — dafür `file_edit`. "
+            "Pfade sind relativ zu ~/chanti/workspace/, z.B. 'hello.py' oder 'src/main.py'.\n\n"
             "Actions: read (ganze Datei), write (ganze Datei ersetzen), "
-            "str_replace (nur einen Textblock ersetzen — effizienter für kleine Änderungen), "
+            "str_replace (nur einen Textblock ersetzen — effizienter für Bugfixes), "
             "list (alle Dateien)."
         ),
         "parameters": {
@@ -46,12 +53,12 @@ TOOL_DEFINITION = {
                     "description": (
                         "read = Datei lesen, write = ganze Datei ersetzen, "
                         "str_replace = Textblock ersetzen (braucht old_str + new_str), "
-                        "list = Dateien auflisten"
+                        "list = Workspace auflisten"
                     ),
                 },
                 "path": {
                     "type": "string",
-                    "description": "Relativer Pfad innerhalb ~/chanti/, z.B. 'SOUL.md' oder 'skills/web_browse.py'. Identitäts-Dateien sind GROSSGESCHRIEBEN: SOUL.md, USER.md, MEMORY.md, IDENTITY.md, TOOLS.md"
+                    "description": "Relativer Pfad innerhalb ~/chanti/workspace/, z.B. 'hello.py' oder 'src/main.py'. Wird case-sensitiv behandelt."
                 },
                 "content": {
                     "type": "string",
@@ -59,7 +66,7 @@ TOOL_DEFINITION = {
                 },
                 "old_str": {
                     "type": "string",
-                    "description": "Bei action=str_replace: der EXAKTE Textblock der ersetzt werden soll. Muss in der Datei genau EINMAL vorkommen, sonst wird abgelehnt."
+                    "description": "Bei action=str_replace: der EXAKTE Textblock der ersetzt werden soll. Muss in der Datei genau EINMAL vorkommen."
                 },
                 "new_str": {
                     "type": "string",
@@ -72,8 +79,13 @@ TOOL_DEFINITION = {
 }
 
 
+def _ensure_base() -> Path:
+    """Stellt sicher, dass ~/chanti/workspace/ existiert."""
+    BASE.mkdir(parents=True, exist_ok=True)
+    return BASE
+
+
 def _inside_base(p: Path) -> bool:
-    """Prüft ob ein Pfad (nach resolve) innerhalb BASE liegt."""
     try:
         p.resolve(strict=False).relative_to(BASE.resolve())
         return True
@@ -82,48 +94,38 @@ def _inside_base(p: Path) -> bool:
 
 
 def _resolve_path(path: str) -> Path:
-    """Findet die Datei case-insensitiv mit striktem Path-Traversal- und Symlink-Schutz."""
+    """Path-Traversal- und Symlink-Schutz, freundlich zu `~`-Unfug des Modells."""
     if not path or not path.strip():
         raise ValueError("Leerer Pfad.")
 
     path = path.strip()
+    _ensure_base()
 
-    # `~` wird NICHT expandiert. Entweder wir deuten den häufigen Modell-Fehler
-    # `~/chanti/...` freundlich um, oder wir weisen mit klarem Hinweis ab.
-    # Sonst landet wörtlich ein Ordner namens `~` in ~/chanti/.
-    if path.startswith("~/chanti/"):
-        path = path[len("~/chanti/"):]
-        if not path:
-            raise ValueError("Leerer Pfad nach ~/chanti/.")
+    # Häufige Modell-Eingabe 'workspace/foo.py' oder '~/chanti/workspace/foo.py'
+    # tolerant umdeuten statt hart abweisen.
+    if path.startswith("~/chanti/workspace/"):
+        path = path[len("~/chanti/workspace/"):]
+    elif path.startswith("workspace/"):
+        path = path[len("workspace/"):]
     elif path.startswith("~"):
         raise PermissionError(
-            "`~` wird nicht expandiert. Pfade sind relativ zu ~/chanti/ "
-            "— also z.B. 'SOUL.md' oder 'workspace/hello.py'."
+            "`~` wird nicht expandiert. Pfade sind relativ zu ~/chanti/workspace/."
         )
 
-    # Absolute Pfade und '..' direkt ablehnen — nur relativ zu BASE.
+    if not path:
+        raise ValueError("Leerer Pfad nach Normalisierung.")
+
     p = Path(path)
     if p.is_absolute():
         raise PermissionError("Zugriff verweigert: Absolute Pfade nicht erlaubt.")
     if ".." in p.parts:
         raise PermissionError("Zugriff verweigert: '..' nicht erlaubt.")
 
-    # workspace/ gehört workspace_edit — hier sperren, damit Identität und
-    # User-Code getrennt bleiben.
-    if p.parts and p.parts[0] == "workspace":
-        raise PermissionError(
-            "Zugriff verweigert: 'workspace/' gehört dem workspace_edit-Tool. "
-            "Nutze `workspace_edit` für Code-Dateien, `file_edit` nur für "
-            "Chantis eigene Config (SOUL.md, skills/, etc.)."
-        )
-
     target = (BASE / p).resolve(strict=False)
-
-    # 1) Pfad muss innerhalb BASE liegen (nach resolve, inkl. Symlink-Auflösung).
     if not _inside_base(target):
-        raise PermissionError("Zugriff verweigert: Nur Dateien innerhalb ~/chanti/ erlaubt.")
+        raise PermissionError("Zugriff verweigert: Nur Dateien innerhalb ~/chanti/workspace/ erlaubt.")
 
-    # 2) Weder das Ziel selbst noch ein Zwischenverzeichnis darf ein Symlink sein.
+    # Symlink-Check: weder Ziel noch Zwischen-Ordner dürfen Symlinks sein.
     if target.is_symlink():
         raise PermissionError("Zugriff verweigert: Symlinks nicht erlaubt.")
     base_resolved = BASE.resolve()
@@ -135,27 +137,14 @@ def _resolve_path(path: str) -> Path:
             raise PermissionError("Zugriff verweigert: Symlinks im Pfad nicht erlaubt.")
         parent = parent.parent
 
-    # Wenn Datei direkt gefunden
-    if target.exists():
-        return target
-
-    # Case-insensitive Suche im Ziel-Ordner
-    name_lower = p.name.lower()
-    search_dir = target.parent
-    if search_dir.exists():
-        for f in search_dir.iterdir():
-            if f.is_symlink():
-                continue
-            if f.name.lower() == name_lower:
-                return f
-    return target  # Nicht gefunden – original zurückgeben (für write)
+    return target
 
 
 def _list_files() -> str:
+    _ensure_base()
     out = []
     base_resolved = BASE.resolve()
     for root, dirs, files in os.walk(BASE, followlinks=False):
-        # Exclude-Dirs in-place filtern, damit os.walk nicht absteigt
         dirs[:] = [d for d in dirs if d not in LIST_EXCLUDE_DIRS and not d.startswith(".")]
         root_path = Path(root)
         try:
@@ -163,23 +152,21 @@ def _list_files() -> str:
         except ValueError:
             continue
         for f in files:
-            if not f.endswith((".py", ".md", ".sh")):
+            if not f.endswith(LIST_EXTENSIONS):
                 continue
             if f.endswith(".bak"):
                 continue
             full = root_path / f
-            # Symlinks in der Liste ausblenden — sie sind eh nicht lesbar.
             if full.is_symlink():
                 continue
             rel = full.relative_to(BASE)
             out.append(str(rel))
     out.sort()
-    return "\n".join(out) if out else "Keine Dateien gefunden."
+    return "\n".join(out) if out else "Workspace ist leer."
 
 
 def _do_str_replace(target: Path, old_str: str, new_str: str) -> str:
-    """Führt str_replace auf target aus. Strikte Regel: old_str muss genau
-    einmal in der Datei vorkommen. Erst dann ist die Ersetzung eindeutig."""
+    """str_replace ohne Backup — im Workspace gehört Versionierung nach git."""
     if old_str is None or old_str == "":
         return "Fehler: old_str darf nicht leer sein."
     if new_str is None:
@@ -199,8 +186,6 @@ def _do_str_replace(target: Path, old_str: str, new_str: str) -> str:
 
     count = text.count(old_str)
     if count == 0:
-        # Kurzen Ausschnitt zurückgeben damit der Agent weiß was tatsächlich
-        # in der Datei steht — sonst rät er im Blindflug.
         return (f"old_str nicht in der Datei gefunden. "
                 f"Tipp: die Datei ist {len(text)} Zeichen lang. "
                 f"Nutze 'read' um den exakten Text zu sehen.")
@@ -213,13 +198,6 @@ def _do_str_replace(target: Path, old_str: str, new_str: str) -> str:
     if len(new_bytes) > MAX_WRITE_BYTES:
         return f"Fehler: Datei würde zu groß werden ({len(new_bytes)} Bytes)."
 
-    # Backup + atomic write — gleiches Muster wie bei action=write.
-    try:
-        backup = target.with_suffix(target.suffix + ".bak")
-        backup.write_bytes(target.read_bytes())
-    except OSError as e:
-        logger.warning(f"Backup fehlgeschlagen ({target.name}): {e}")
-
     try:
         tmp = target.with_suffix(target.suffix + ".tmp")
         tmp.write_bytes(new_bytes)
@@ -227,9 +205,9 @@ def _do_str_replace(target: Path, old_str: str, new_str: str) -> str:
     except OSError as e:
         return f"Fehler beim Schreiben: {e}"
 
-    logger.info(f"Datei gepatcht: {target.relative_to(BASE)} "
+    logger.info(f"workspace gepatcht: {target.relative_to(BASE)} "
                 f"(-{len(old_str)} +{len(new_str)} Zeichen)")
-    return (f"Datei gepatcht: {target.name} "
+    return (f"Datei gepatcht: {target.relative_to(BASE)} "
             f"(-{len(old_str)} +{len(new_str)} Zeichen)")
 
 
@@ -253,7 +231,7 @@ def execute(action: str, path: str = None, content: str = None,
             return f"Kein regulärer Datei-Pfad: {path}"
         try:
             text = target.read_text(encoding="utf-8")
-            logger.info(f"Datei gelesen: {target.relative_to(BASE)} ({len(text)} Zeichen)")
+            logger.info(f"workspace gelesen: {target.relative_to(BASE)} ({len(text)} Zeichen)")
             return text
         except UnicodeDecodeError:
             return f"Datei {path} ist keine UTF-8 Text-Datei."
@@ -278,25 +256,19 @@ def execute(action: str, path: str = None, content: str = None,
             return f"Fehler beim Anlegen des Ordners: {e}"
 
         if not _inside_base(target):
-            return "Zugriff verweigert: Ziel liegt außerhalb ~/chanti/."
+            return "Zugriff verweigert: Ziel liegt außerhalb ~/chanti/workspace/."
 
-        # Bestehende Datei sichern.
-        if target.exists() and target.is_file():
-            try:
-                backup = target.with_suffix(target.suffix + ".bak")
-                backup.write_bytes(target.read_bytes())
-            except OSError as e:
-                logger.warning(f"Backup fehlgeschlagen ({target.name}): {e}")
-
+        # Anders als file_edit: KEIN .bak-Backup im Workspace. Dort passiert
+        # eh viel Rewrite, Backups müllen nur und haben keinen Wert —
+        # richtige Versionierung gehört in git.
         try:
-            # Atomic write: erst in Temp, dann umbenennen.
             tmp = target.with_suffix(target.suffix + ".tmp")
             tmp.write_bytes(content_bytes)
             tmp.replace(target)
         except OSError as e:
             return f"Fehler beim Schreiben: {e}"
 
-        logger.info(f"Datei gespeichert: {target.relative_to(BASE)} ({len(content_bytes)} Bytes)")
-        return f"Datei gespeichert: {target.name} ({len(content)} Zeichen)"
+        logger.info(f"workspace gespeichert: {target.relative_to(BASE)} ({len(content_bytes)} Bytes)")
+        return f"Datei gespeichert: {target.relative_to(BASE)} ({len(content)} Zeichen)"
 
     return f"Unbekannte Aktion: {action}"
