@@ -23,3 +23,4 @@
 - Kevin hat am 30. April Geburtstag
 - Rüdiger Gamm ist eine unbekannte Person
 - Rüdiger Gamm hat von seinem Vater mathematische Fähigkeiten gelernt
+- Chanti läuft nun dauerhaft auf einem Server

@@ -27,6 +27,12 @@ from calendar_startup import reminder_startup_task
 import leads_core
 import leads_db
 from leads_analyzer import website as _leads_website
+# NEU ▼ Game-Bridge (Chanti-Welt)
+import game_bridge_http
+import game_diary
+import game_brain
+from telegram_notify import send_telegram
+# NEU ▲
 from pathlib import Path as _LeadPath
 # NEU ▲
 import asyncio
@@ -191,7 +197,43 @@ async def lifespan(app: FastAPI):
     load_skills()
     cleanup_old_logs(keep_days=30)
     leads_db.init_db()
+    # Game-Session-End-Handler: wenn der Spieler disconnected, erzeuge
+    # Tagebuch-Eintrag und sende Telegram-Zusammenfassung.
+    async def _on_game_session_end(report: dict):
+        dur = report.get("duration_seconds", 0.0)
+        logger.info(f"Game-Session beendet — Dauer {dur:.0f}s, "
+                    f"deaktiviere Brain + schreibe Tagebuch…")
+        try:
+            await game_brain.on_session_end(report)
+        except Exception as e:
+            logger.error(f"Brain-Deaktivierung fehlgeschlagen: {e}",
+                         exc_info=True)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, game_diary.generate_and_store, report
+            )
+        except Exception as e:
+            logger.error(f"Tagebuch-Generierung fehlgeschlagen: {e}",
+                         exc_info=True)
+            return
 
+        summary = result.get("summary") or "Session beendet."
+        dur_min = dur / 60.0
+        tg_text = f"Chanti-Welt · {dur_min:.1f} min\n{summary}"
+        sent = await loop.run_in_executor(None, send_telegram, tg_text)
+        if sent:
+            logger.info("Session-Ende-Telegram gesendet")
+        else:
+            logger.warning("Session-Ende-Telegram NICHT gesendet")
+
+
+    # Brain mit HTTP-Bridge (Luanti) verdrahten
+    game_brain.configure(send_to_game_callable=game_bridge_http.send_to_game)
+    game_bridge_http.register_session_end_handler(_on_game_session_end)
+    game_bridge_http.register_session_start_handler(game_brain.on_session_start)
+    game_bridge_http.register_plan_result_handler(game_brain.on_plan_result)
+    game_bridge_http.start_watchdog()
     # Kalender-Reminder-Task
     rem_task = asyncio.create_task(reminder_startup_task())
     logger.info("Kalender-Reminder-Task eingeplant")
@@ -241,7 +283,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-
+app.include_router(game_bridge_http.router)
 
 # ---------------------------------------------------------------------------
 # Broadcast

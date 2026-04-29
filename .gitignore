@@ -31,3 +31,19 @@ Thumbs.db
 
 NICHT PUSHEN! HOME ASSISTANT TOKEN.txt
 voices/
+
+# ── Backups / Legacy ───────────────────────────────
+_legacy/
+*.bak
+*.bak[0-9]*
+*.bak_*
+
+# ── Chanti-private Daten ───────────────────────────
+game/memories/
+home/
+
+# ── Game / Luanti-bezogene Verzeichnisse ───────────
+game/
+
+# ── n8n-Migrations-Reste ───────────────────────────
+n8n_backup.tar.gz
