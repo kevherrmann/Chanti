@@ -7,7 +7,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from llm import chat as llm_chat
-from tts import speak
+try:
+    from tts import speak
+except (OSError, ImportError) as e:
+    import logging
+    logging.getLogger("chanti").warning(f"TTS nicht verfügbar: {e}. Chanti läuft ohne Sprachausgabe.")
+    def speak(*args, **kwargs):
+        return None
 from memory import (SOUL_FILE, USER_FILE, MEMORY_FILE,
                     load_system_prompt, load_recent_context, log_conversation,
                     parse_and_execute_commands, cleanup_old_logs)
@@ -21,6 +27,12 @@ from calendar_startup import reminder_startup_task
 import leads_core
 import leads_db
 from leads_analyzer import website as _leads_website
+# NEU ▼ Game-Bridge (Chanti-Welt)
+import game_bridge_http
+import game_diary
+import game_brain
+from telegram_notify import send_telegram
+# NEU ▲
 from pathlib import Path as _LeadPath
 # NEU ▲
 import asyncio
@@ -64,9 +76,16 @@ _LEADS_SCREENSHOTS_BASE = (_LeadPath.home() / "chanti" / "data" / "screenshots")
 def _check_auth(request: Request):
     if not _API_KEY:
         return
-    token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
-    if token != _API_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    # n8n läuft auf demselben Server und ruft via 127.0.0.1 auf → keine Auth nötig
+    client_host = request.client.host if request.client else ""
+    if client_host in ("127.0.0.1", "::1", "localhost"):
+        return
+    # Browser-Cookie ODER Bearer-Token akzeptieren
+    cookie_token = request.cookies.get("chanti_auth", "")
+    header_token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if cookie_token == _API_KEY or header_token == _API_KEY:
+        return
+    raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 def _rate_limit(key: str):
@@ -178,7 +197,43 @@ async def lifespan(app: FastAPI):
     load_skills()
     cleanup_old_logs(keep_days=30)
     leads_db.init_db()
+    # Game-Session-End-Handler: wenn der Spieler disconnected, erzeuge
+    # Tagebuch-Eintrag und sende Telegram-Zusammenfassung.
+    async def _on_game_session_end(report: dict):
+        dur = report.get("duration_seconds", 0.0)
+        logger.info(f"Game-Session beendet — Dauer {dur:.0f}s, "
+                    f"deaktiviere Brain + schreibe Tagebuch…")
+        try:
+            await game_brain.on_session_end(report)
+        except Exception as e:
+            logger.error(f"Brain-Deaktivierung fehlgeschlagen: {e}",
+                         exc_info=True)
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, game_diary.generate_and_store, report
+            )
+        except Exception as e:
+            logger.error(f"Tagebuch-Generierung fehlgeschlagen: {e}",
+                         exc_info=True)
+            return
 
+        summary = result.get("summary") or "Session beendet."
+        dur_min = dur / 60.0
+        tg_text = f"Chanti-Welt · {dur_min:.1f} min\n{summary}"
+        sent = await loop.run_in_executor(None, send_telegram, tg_text)
+        if sent:
+            logger.info("Session-Ende-Telegram gesendet")
+        else:
+            logger.warning("Session-Ende-Telegram NICHT gesendet")
+
+
+    # Brain mit HTTP-Bridge (Luanti) verdrahten
+    game_brain.configure(send_to_game_callable=game_bridge_http.send_to_game)
+    game_bridge_http.register_session_end_handler(_on_game_session_end)
+    game_bridge_http.register_session_start_handler(game_brain.on_session_start)
+    game_bridge_http.register_plan_result_handler(game_brain.on_plan_result)
+    game_bridge_http.start_watchdog()
     # Kalender-Reminder-Task
     rem_task = asyncio.create_task(reminder_startup_task())
     logger.info("Kalender-Reminder-Task eingeplant")
@@ -228,7 +283,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-
+app.include_router(game_bridge_http.router)
 
 # ---------------------------------------------------------------------------
 # Broadcast
@@ -252,9 +307,56 @@ async def broadcast_notify(message: str):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+_LOGIN_PAGE = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Chanti Login</title>
+<style>
+body{background:#0a0a0a;color:#eee;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+form{background:#1a1a1a;padding:2rem;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+input{width:100%;padding:.7rem;margin:.5rem 0;background:#2a2a2a;border:1px solid #444;color:#eee;border-radius:4px;box-sizing:border-box}
+button{width:100%;padding:.7rem;background:#4a90e2;color:#fff;border:0;border-radius:4px;cursor:pointer;font-size:1rem}
+button:hover{background:#3a7bc8}
+.err{color:#ff6b6b;margin-top:.5rem;font-size:.9rem}
+</style></head>
+<body><form method="POST" action="/login">
+<h2 style="margin-top:0">Chanti</h2>
+<input type="password" name="password" placeholder="Passwort" autofocus required>
+<button type="submit">Einloggen</button>
+{err}
+</form></body></html>"""
+
+
 @app.get("/")
-async def index():
-    return HTMLResponse(_load_chat_html())
+async def index(request: Request):
+    if not _API_KEY:
+        return HTMLResponse(_load_chat_html())
+    if request.cookies.get("chanti_auth", "") == _API_KEY:
+        return HTMLResponse(_load_chat_html())
+    return HTMLResponse(_LOGIN_PAGE.replace("{err}", ""))
+
+
+@app.post("/login")
+async def login(request: Request):
+    from fastapi.responses import RedirectResponse
+    form = await request.form()
+    password = form.get("password", "")
+    if password == _API_KEY and _API_KEY:
+        resp = RedirectResponse(url="/", status_code=303)
+        resp.set_cookie(
+            "chanti_auth", _API_KEY,
+            max_age=60*60*24*30,   # 30 Tage
+            httponly=True,
+            samesite="lax",
+        )
+        return resp
+    return HTMLResponse(_LOGIN_PAGE.replace("{err}", '<div class="err">Falsches Passwort</div>'), status_code=401)
+
+
+@app.get("/logout")
+async def logout():
+    from fastapi.responses import RedirectResponse
+    resp = RedirectResponse(url="/", status_code=303)
+    resp.delete_cookie("chanti_auth")
+    return resp
 
 
 @app.post("/chat")
