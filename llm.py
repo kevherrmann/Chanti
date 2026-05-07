@@ -7,11 +7,16 @@ import time
 
 import requests
 
-from config import GROQ_API_KEY, GROQ_MODEL, GROQ_MODEL_TOOLS
-
 logger = logging.getLogger("chanti")
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+from config import (
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_MODEL,
+    LLM_MODEL_TOOLS,
+)
+
+LLM_URL = LLM_BASE_URL.rstrip("/") + "/chat/completions"
 
 # Tuning
 MAX_TOOL_ROUNDS = 12
@@ -95,13 +100,13 @@ def _parse_failed_generation(failed_gen: str, executors: dict) -> str | None:
     return None
 
 
-def _groq_request(payload: dict, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
+def _llm_request(payload: dict, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
     return requests.post(
         GROQ_URL,
         headers={
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {LLM_API_KEY}",
             "Content-Type": "application/json",
-        },
+        }
         json=payload,
         timeout=timeout,
     )
@@ -114,7 +119,7 @@ def _request_with_retries(payload: dict) -> requests.Response | None:
     attempt_5xx = 0
     while True:
         try:
-            resp = _groq_request(payload)
+            resp = _llm_request(payload)
         except requests.exceptions.Timeout:
             logger.error("Groq Timeout")
             return None
@@ -202,7 +207,7 @@ def chat(messages: list[dict], tools: list[dict] = None,
     local_messages = list(messages)
 
     # Modell-Auswahl: Tool-fähiges Modell nur wenn Tools übergeben
-    model = GROQ_MODEL_TOOLS if tools else GROQ_MODEL
+    model = LLM_MODEL_TOOLS if tools else LLM_MODEL
 
     payload = {
         "model": model,

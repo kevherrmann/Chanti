@@ -1,0 +1,38 @@
+{
+  "jobs": [
+    {
+      "id": "93443b23d10a",
+      "name": "CrazyFamilyLP TikTok zu Google Drive Backup",
+      "prompt": "F\u00fchre das automatische Backup f\u00fcr den TikTok-Kanal CrazyFamilyLP aus. Nutze das vorhandene Skript /opt/data/tiktok_to_drive_backup.py. Befehl: python3 /opt/data/tiktok_to_drive_backup.py --lookback-days 4 --max-scan 12. Berichte kurz auf Deutsch, ob neue Videos gefunden und zu Google Drive hochgeladen wurden, inklusive Anzahl und eventueller Fehler. Wenn das Skript fehlschl\u00e4gt, gib die relevante Fehlermeldung wieder. Keine weiteren Cronjobs erstellen.",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * 2,4,6",
+        "display": "0 8 * * 2,4,6"
+      },
+      "schedule_display": "0 8 * * 2,4,6",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-29T12:24:14.404882+00:00",
+      "next_run_at": "2026-05-05T08:00:00+00:00",
+      "last_run_at": "2026-05-02T08:01:18.263044+00:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": null
+    }
+  ],
+  "updated_at": "2026-05-02T08:01:18.263820+00:00"
+}
