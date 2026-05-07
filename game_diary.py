@@ -194,6 +194,22 @@ def _append_diary(entry_markdown: str):
         f.write("\n")
 
 
+def _fallback_summary(report: dict) -> str:
+    """Nüchterne Telegram-Zusammenfassung ohne LLM/API-Call."""
+    dur = float(report.get("duration_seconds") or 0.0)
+    dur_min = dur / 60.0
+    ticks = int(report.get("ticks") or 0)
+    mv = report.get("movement_range") or {}
+    if all(mv.get(k) is not None for k in ("min_x", "max_x", "min_z", "max_z")):
+        movement = (
+            f"x={mv['min_x']:.0f}-{mv['max_x']:.0f}, "
+            f"z={mv['min_z']:.0f}-{mv['max_z']:.0f}"
+        )
+    else:
+        movement = "Bewegung unbekannt"
+    return f"Ich war {dur_min:.1f} min in der Welt, habe {ticks} Zustände gesendet und erkundet: {movement}."
+
+
 def _format_entry(title: str, body: str, report: dict) -> str:
     ts = datetime.fromtimestamp(report.get("started_at", time.time()))
     dur = report.get("duration_seconds", 0)
@@ -260,10 +276,7 @@ def generate_and_store(report: dict) -> dict:
         max_tokens=400,
     )
     if not diary_text:
-        diary_text = (
-            "Ich kann gerade nicht in Worte fassen wie die Session war — "
-            "das LLM hat nicht geantwortet. Die Daten stehen unten."
-        )
+        diary_text = _fallback_summary(report)
 
     # 2) Kurze Zusammenfassung
     # Hier bewusst OHNE Chantis SOUL-Prompt, sondern mit einem nüchternen

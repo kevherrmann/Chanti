@@ -1,15 +1,8 @@
 """Tool-Definitions für Chantis Game-Brain.
 
-Phase 1: 5 Primitives, die Chanti im Plan-Format aufrufen darf.
-Diese Definitionen werden in den LLM-Prompt eingebaut, damit Chanti
-weiß was sie kann.
-
-Wir nutzen KEIN OpenAI-Tool-Calling. Stattdessen liefert das LLM ein
-JSON mit "thought" und "plan" zurück, wobei "plan" eine Liste von
-Aktionen ist, die jeweils einer der hier definierten Primitives folgen.
-
-Das game_diary-Modul nutzt den gleichen Ansatz mit System-Prompt;
-wir bleiben konsistent.
+Die Primitives sind bewusst niedrigstufig. Chanti soll nicht mit fertigen
+Minecraft-/Luanti-Konzepten starten, sondern durch Versuch -> Ergebnis lernen,
+was diese Aktionen in der Welt bewirken.
 """
 from __future__ import annotations
 
@@ -26,43 +19,61 @@ class ActionSpec:
 
 
 # ---------------------------------------------------------------------------
-# Die 5 Primitives — exakt synchron mit plan_executor.py auf dem Client
+# Primitive Aktionen — synchron mit executor.lua auf dem Luanti-Client
 # ---------------------------------------------------------------------------
 
 ACTIONS: list[ActionSpec] = [
     ActionSpec(
         name="move_forward",
-        description="Geht eine Anzahl Schritte in deiner aktuellen Blickrichtung.",
+        description="Bewegt deinen Körper eine Anzahl Schritte in deiner aktuellen Blickrichtung.",
         args_doc='steps: ganze Zahl 1-5 (wie viele Blöcke)',
         args_schema={"steps": (int, 1, 5)},
     ),
     ActionSpec(
         name="turn_left",
-        description="Dreht dich um die Y-Achse nach links.",
+        description="Dreht deinen Körper um die Y-Achse nach links.",
         args_doc='degrees: ganze Zahl 90, 180 oder 270',
         args_schema={"degrees": (int, 90, 270)},
     ),
     ActionSpec(
         name="turn_right",
-        description="Dreht dich um die Y-Achse nach rechts.",
+        description="Dreht deinen Körper um die Y-Achse nach rechts.",
         args_doc='degrees: ganze Zahl 90, 180 oder 270',
         args_schema={"degrees": (int, 90, 270)},
     ),
     ActionSpec(
+        name="jump",
+        description="Gibt deinem Körper einen Sprungimpuls nach oben. Finde selbst heraus wann das nützlich ist.",
+        args_doc='keine Argumente',
+        args_schema={},
+    ),
+    ActionSpec(
+        name="dig_forward",
+        description="Versucht den Block direkt vor deinen Füßen abzubauen. Das Ergebnis landet ggf. in deinem Inventar.",
+        args_doc='keine Argumente',
+        args_schema={},
+    ),
+    ActionSpec(
+        name="place_forward",
+        description="Versucht einen Block aus deinem Inventar direkt vor deinen Füßen zu platzieren.",
+        args_doc='item: Name eines Blocks aus deinem Inventar, z.B. default:dirt',
+        args_schema={"item": (str, None, None)},
+    ),
+    ActionSpec(
+        name="inventory_status",
+        description="Schaut nach, welche Items du gerade in deinem einfachen Inventar hast.",
+        args_doc='keine Argumente',
+        args_schema={},
+    ),
+    ActionSpec(
         name="wait",
-        description=(
-            "Bleibt eine Weile stehen. Regeneriert deine Energie, "
-            "wenn du erschöpft bist."
-        ),
+        description="Bleibt eine Weile stehen und beobachtet weiter.",
         args_doc='seconds: Kommazahl 0.1-5.0',
         args_schema={"seconds": (float, 0.1, 5.0)},
     ),
     ActionSpec(
         name="look_around",
-        description=(
-            "Schaust dich um und bekommst zurück welche Blöcke direkt "
-            "in deinen 4 Himmelsrichtungen sind. Verbraucht keine Energie."
-        ),
+        description="Schaut dich um und bekommt zurück welche Blöcke direkt um dich herum sind.",
         args_doc='keine Argumente',
         args_schema={},
     ),
@@ -111,8 +122,10 @@ def validate_step(step: dict) -> tuple[bool, str]:
             val = arg_type(val)
         except (TypeError, ValueError):
             return False, f"falscher Typ für {arg_name}"
-        if val < arg_min or val > arg_max:
-            return False, f"{arg_name}={val} außerhalb {arg_min}-{arg_max}"
+        if arg_min is not None and val < arg_min:
+            return False, f"{arg_name}={val} kleiner als {arg_min}"
+        if arg_max is not None and val > arg_max:
+            return False, f"{arg_name}={val} größer als {arg_max}"
     return True, ""
 
 

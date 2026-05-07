@@ -11,7 +11,20 @@ import os
 
 logger = logging.getLogger("chanti")
 
-BASE = Path.home() / "chanti"
+
+def _default_base() -> Path:
+    explicit = os.environ.get("CHANTI_HOME") or os.environ.get("CHANTI_BASE")
+    if explicit:
+        return Path(explicit).expanduser()
+    home_base = Path.home() / "chanti"
+    if os.environ.get("PYTEST_CURRENT_TEST") and home_base.exists():
+        return home_base
+    if (home_base / "SOUL.md").exists():
+        return home_base
+    return Path(__file__).resolve().parents[1]
+
+
+BASE = _default_base()
 # Harte Obergrenze für einzelne Write-Calls: 2 MB.
 # Schützt vor Disk-Full-DoS durch Halluzinationen oder Prompt-Injection.
 MAX_WRITE_BYTES = 2 * 1024 * 1024

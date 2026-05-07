@@ -318,17 +318,10 @@ async def post_plan_result(request: Request):
         raise HTTPException(status_code=403, detail=auth)
 
     if _plan_result_handler:
-        async def _run_handler():
-            try:
-                await _plan_result_handler(payload)
-            except Exception as e:
-                logger.error(f"Plan-Result-Handler Fehler: {e}", exc_info=True)
-
-        # Wichtig: Sofort 200 OK an Luanti zurückgeben.
-        # Der Brain-Handler schläft/rate-limited ggf. mehrere Sekunden, und
-        # Luantis HTTP timeout ist aktuell 5s. Wenn wir hier awaiten, sieht
-        # Luanti fälschlich plan_result-POST timeouts.
-        asyncio.create_task(_run_handler())
+        try:
+            await _plan_result_handler(payload)
+        except Exception as e:
+            logger.error(f"Plan-Result-Handler Fehler: {e}", exc_info=True)
 
     return {"ok": True}
 

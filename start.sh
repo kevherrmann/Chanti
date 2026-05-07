@@ -9,6 +9,7 @@ cleanup() {
     [ -n "$N8N_PID" ]      && kill $N8N_PID 2>/dev/null
     [ -n "$NGROK_PID" ]    && kill $NGROK_PID 2>/dev/null
     [ -n "$WAKEWORD_PID" ] && kill $WAKEWORD_PID 2>/dev/null
+    [ -n "$TELEGRAM_PID" ] && kill $TELEGRAM_PID 2>/dev/null
     echo "✅ Cleanup abgeschlossen"
 }
 trap cleanup EXIT INT TERM
@@ -59,6 +60,13 @@ PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/python \
     wakeword.py &
 WAKEWORD_PID=$!
 echo "✅ Wake Word bereit"
+
+# Direkter Chanti-Telegram-Bot (Polling). Ersetzt den fragilen n8n/ngrok-Telegram-Webhook.
+echo "🤖 Starte Chanti Telegram Bot..."
+PYTHONUNBUFFERED=1 /run/media/z0mb1/58BCF437BCF4116C/chanti-env/bin/python \
+    telegram_bot.py &
+TELEGRAM_PID=$!
+echo "✅ Telegram Bot bereit"
 
 # Chanti starten (blockierend – trap fängt SIGINT/SIGTERM)
 echo "🌐 Starte Chanti Web-UI auf http://localhost:8000"

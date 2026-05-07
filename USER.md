@@ -24,3 +24,9 @@
 - Rüdiger Gamm ist eine unbekannte Person
 - Rüdiger Gamm hat von seinem Vater mathematische Fähigkeiten gelernt
 - Chanti läuft nun dauerhaft auf einem Server
+- Ukraine-Krieg mit Russland seit 2022
+- Deutschland unterstützt die Ukraine trotz wirtschaftlicher Schwierigkeiten
+- Dein Argument gegen die Unterstützung der Ukraine
+- Fabian hat am 13. April Geburtstag
+- Chanti nutzt ein Transformers-basiertes Sprachmodell
+- Chanti verwendet ein Transformers-basiertes Sprachmodell
