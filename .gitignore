@@ -47,3 +47,14 @@ game/
 
 # ── n8n-Migrations-Reste ───────────────────────────
 n8n_backup.tar.gz
+
+# Secrets / OAuth tokens
+secrets/
+*.token.json
+google_token.json
+youtube_token.json
+google_client_secret.json
+hermes-google-client-secret.json
+google_drive_oauth_pending.json
+google_youtube_oauth_pending.json
+.env

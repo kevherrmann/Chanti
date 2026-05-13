@@ -30,7 +30,7 @@ LOOP_DETECTION_REPEATS = 3
 
 # Wenn dasselbe Tool mehrfach in Folge aufgerufen wird, ist das Modell wahrscheinlich
 # in einem Trial-and-Error-Loop.
-LOOP_DETECTION_SAME_TOOL = 5
+LOOP_DETECTION_SAME_TOOL = 12
 
 REQUEST_TIMEOUT = 30
 MAX_RETRIES_ON_429 = 3
@@ -329,6 +329,7 @@ def chat(
         "messages": local_messages,
         "temperature": 0.7,
         "max_tokens": max_tokens,
+        "thinking": {"type": "disabled"},
     }
 
     if tools:
@@ -383,7 +384,7 @@ def chat(
                         return _extract_content(fallback_resp.json())
 
             if tools:
-                logger.info("Versuche ohne Tools…")
+                logger.warning("LLM-Fehler bei Tool-Runde: HTTP %s | %s", resp.status_code, resp.text[:1000])
                 sanitized = _sanitize_for_no_tools(local_messages)
                 fallback_resp = _request_with_retries(
                     {
@@ -391,11 +392,17 @@ def chat(
                         "messages": sanitized,
                         "temperature": 0.7,
                         "max_tokens": max_tokens,
+                        "thinking": {"type": "disabled"},
                     }
                 )
 
                 if fallback_resp is not None and fallback_resp.ok:
-                    return _extract_content(fallback_resp.json())
+                    content = _extract_content(fallback_resp.json())
+                    if content:
+                        return content
+
+                    logger.warning("Fallback ohne Tools war ok, aber Antwort war leer.")
+                    return "Ich habe das Tool ausgeführt, aber danach keine brauchbare Abschlussantwort vom Modell bekommen."
 
             return _error_message_from_response(resp)
 
@@ -451,7 +458,7 @@ def chat(
 
             last_tool_name = fn_name
 
-            if consecutive_same_tool >= LOOP_DETECTION_SAME_TOOL:
+            if fn_name != "web_search" and consecutive_same_tool >= LOOP_DETECTION_SAME_TOOL:
                 logger.warning(
                     "Loop erkannt: %s %sx in Folge — breche ab",
                     fn_name,
@@ -566,6 +573,7 @@ def _final_answer_without_tools(messages: list[dict], max_tokens: int) -> str:
             "messages": sanitized + [hint],
             "temperature": 0.3,
             "max_tokens": max_tokens,
+            "thinking": {"type": "disabled"},
         }
     )
 

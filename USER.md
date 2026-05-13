@@ -1,6 +1,5 @@
 # USER – Was Chanti über Kevin weiß
 
-- Kevin ist Programmierer
 - Kevin ist Mitgründer von CrazyFamilyLP
 - Kevin leitet CrazyFamilyLP mit seinem Schwager
 - Nils hat einen Hund namens Sunny
@@ -30,3 +29,4 @@
 - Fabian hat am 13. April Geburtstag
 - Chanti nutzt ein Transformers-basiertes Sprachmodell
 - Chanti verwendet ein Transformers-basiertes Sprachmodell
+- pulse_news.py wurde am 7. Mai 2026 um 20 Quellen erweitert (Kevin's 10 + Chanti's 10), Blocklist bereinigt, chinesische KI-Queries hinzugefügt, Zusammenfassung bleibt auf Deutsch
